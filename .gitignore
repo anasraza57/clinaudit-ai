@@ -1,0 +1,63 @@
+# Environment
+.env
+.env.local
+.env.production
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+eggs/
+*.egg
+.Python
+pip-log.txt
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Docker
+docker-compose.override.yml
+
+# Data files (large, not tracked in git)
+data/*.csv
+data/*.index
+data/*.jsonl
+data/*.txt
+data/*.xlsx
+!data/.gitkeep
+
+# Logs
+logs/
+*.log
+
+# Model files
+models/
+*.gguf
+*.bin
+*.safetensors
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+Thumbs.db

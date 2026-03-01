@@ -1,0 +1,56 @@
+# =============================================================================
+# MSK Clinical Audit System — Docker Compose
+# =============================================================================
+# Usage:
+#   docker compose up --build        # Start all services
+#   docker compose down               # Stop all services
+#   docker compose logs -f app        # Follow app logs
+
+services:
+
+  # -- Application --
+  app:
+    build: .
+    container_name: guidelineguard-app
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=db
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # Mount source code for hot-reload in development
+      - ./src:/app/src:ro
+      # Mount data directory for access to CSV/index files
+      - ./data:/app/data:ro
+    command: >
+      uvicorn src.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+    restart: unless-stopped
+
+  # -- Database --
+  db:
+    image: postgres:16-alpine
+    container_name: guidelineguard-db
+    environment:
+      POSTGRES_DB: ${DB_NAME:-msk_audit}
+      POSTGRES_USER: ${DB_USER:-msk_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme_in_production}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-msk_user} -d ${DB_NAME:-msk_audit}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
