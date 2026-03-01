@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.config.settings import get_settings
 from src.utils.logging import setup_logging
 from src.api.routes.health import router as health_router
+from src.api.routes.data import router as data_router
 
 
 @asynccontextmanager
@@ -35,16 +36,26 @@ async def lifespan(app: FastAPI):
     )
 
     # -- Startup --
-    # Future: initialise database connection pool
-    # Future: load FAISS index into memory
-    # Future: initialise AI provider
+    from src.models.database import init_db, close_db
+    from src.services.vector_store import get_vector_store
+
+    try:
+        await init_db()
+    except Exception as e:
+        logger.warning("Database not available on startup: %s", e)
+
+    try:
+        vs = get_vector_store()
+        vs.load()
+    except Exception as e:
+        logger.warning("FAISS index not loaded on startup: %s", e)
 
     yield
 
     # -- Shutdown --
     logger.info("Shutting down %s", settings.app_name)
-    # Future: close database connections
-    # Future: cleanup resources
+    await close_db()
+    get_vector_store().unload()
 
 
 def create_app() -> FastAPI:
@@ -90,8 +101,7 @@ def create_app() -> FastAPI:
 
     # -- Register Routers --
     app.include_router(health_router)
-    # Future: app.include_router(audit_router, prefix="/api/v1")
-    # Future: app.include_router(patients_router, prefix="/api/v1")
+    app.include_router(data_router, prefix="/api/v1")
 
     return app
 

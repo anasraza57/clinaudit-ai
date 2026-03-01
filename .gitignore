@@ -22,7 +22,9 @@ venv/
 env/
 
 # IDE
-.vscode/
+# IDE (keep .vscode/settings.json for Python interpreter config)
+.vscode/*
+!.vscode/settings.json
 .idea/
 *.swp
 *.swo
@@ -38,20 +40,21 @@ htmlcov/
 # Docker
 docker-compose.override.yml
 
-# Data files (large, not tracked in git)
+# Data files — track compressed and essential files, ignore raw large files
 data/*.csv
-data/*.index
 data/*.jsonl
 data/*.txt
 data/*.xlsx
-!data/.gitkeep
+!data/msk_valid_notes.csv
+!data/guidelines.csv.gz
+!data/guidelines.index
 
 # Logs
 logs/
 *.log
 
-# Model files
-models/
+# ML model files (not src/models/ which is our Python package)
+/models/
 *.gguf
 *.bin
 *.safetensors
