@@ -139,10 +139,48 @@ Since we only have 1,261 unique concepts and classify each one **once** (then ca
 | **procedure** | `\b\w+ectomy\b`, `\b\w+plasty\b`, `\barthroscop` | "Bursectomy", "Arthroplasty", "Arthroscopy" |
 | **administrative** | `\breview\b`, `\bconsultation\b`, `\bcertificate\b` | "Medication review", "Telephone consultation" |
 
-## How This Differs from Hiruni's Approach
+## Why We Changed the Approach from Hiruni's
 
-Hiruni's extractor required a running FHIR server (HADES) to look up SNOMED codes and parse their Fully Specified Names for semantic tags like "(disorder)" and "(procedure)". Our approach:
-- Uses keyword pattern matching instead of an external FHIR server
-- Falls back to the LLM for edge cases instead of requiring specific SNOMED infrastructure
-- Achieves 84% coverage with rules alone, making it fast and cheap
-- Doesn't require any external service to be running
+### What Hiruni Did (FHIR Server)
+
+Hiruni's extractor sent each SNOMED concept ID to a **FHIR server** called HADES running locally on her machine. The server returned the **Fully Specified Name (FSN)** which contains an official semantic tag in parentheses:
+
+```
+Input:  SNOMED ID 279039007
+FHIR returns: "Low back pain (disorder)"
+                                ^^^^^^^^^^
+                         Hiruni parsed this tag → category = "diagnosis"
+```
+
+Other examples: "(procedure)", "(finding)", "(substance)", "(regime/therapy)".
+
+This is the **officially correct** way to categorise SNOMED concepts — the semantic tags come from SNOMED's own terminology hierarchy.
+
+### Why We Couldn't Use It
+
+1. **HADES isn't included** — it's a separate Java server that needs to be installed, configured, and loaded with the full SNOMED CT database. Nobody documented how to set it up, and it wasn't provided in the project files.
+2. **External dependency** — the entire pipeline breaks if the FHIR server is down, unreachable, or misconfigured. Hiruni had zero error handling for this.
+3. **Slow** — each of the 21,530 entries would need an individual HTTP request to the server.
+4. **Not portable** — anyone cloning our repo would need to set up this server before anything works.
+
+### Honest Comparison
+
+| | Hiruni's (FHIR Server) | Ours (Rules + LLM) |
+|---|---|---|
+| **Accuracy** | Very high — SNOMED's official semantic tags | High — 84% rules (reliable), 16% LLM (mostly correct) |
+| **Dependencies** | Requires HADES FHIR server running | Zero external services needed |
+| **Speed** | Slow — HTTP request per concept | Instant for rules, seconds for LLM batch |
+| **Cost** | Free (local server) but high setup cost | Free for rules, minimal LLM cost (~192 calls total) |
+| **Reliability** | Fragile — server crash = pipeline crash | Robust — rules never fail, LLM has error handling |
+| **Setup** | Complex — install Java, HADES, load SNOMED data | Zero — patterns are in the code |
+| **Portability** | Poor — works on Hiruni's machine only | Perfect — works anywhere with `pip install` |
+
+### Is Our Approach Better?
+
+**For our situation, yes.** Here's why:
+
+The FHIR approach uses SNOMED's official tags, which sounds ideal. But our keyword rules are effectively doing the same classification — medical terms ending in "-itis" ARE inflammatory disorders, terms containing "referral" ARE referrals, terms containing "pain" ARE diagnoses. We're matching the same linguistic signals that SNOMED's own hierarchy encodes.
+
+The 16% edge cases where keywords aren't enough? We send those to the LLM, which can reason about medical meaning — arguably better than a simple semantic tag for borderline cases like "Bandy legged" or "Application of adhesive skin closure".
+
+**Trade-off:** We sacrifice the theoretical correctness of SNOMED's official hierarchy for practical advantages: zero setup, instant speed, no external dependencies, and works on any machine. Given that this is a research project (not a clinical production system), this trade-off makes sense.
