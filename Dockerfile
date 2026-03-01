@@ -1,5 +1,5 @@
 # =============================================================================
-# MSK Clinical Audit System — Dockerfile
+# GuidelineGuard — Dockerfile
 # =============================================================================
 # Multi-stage build for smaller final image.
 

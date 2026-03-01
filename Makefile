@@ -1,5 +1,5 @@
 # =============================================================================
-# MSK Clinical Audit System — Makefile
+# GuidelineGuard — Makefile
 # =============================================================================
 # Common commands for development.
 #

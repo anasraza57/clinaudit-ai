@@ -35,8 +35,8 @@ class Settings(BaseSettings):
     # ── Database ─────────────────────────────────────────────────
     db_host: str = "db"
     db_port: int = 5432
-    db_name: str = "msk_audit"
-    db_user: str = "msk_user"
+    db_name: str = "guideline_guard"
+    db_user: str = "gg_user"
     db_password: str = "changeme_in_production"
 
     @property

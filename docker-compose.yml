@@ -1,5 +1,5 @@
 # =============================================================================
-# MSK Clinical Audit System — Docker Compose
+# GuidelineGuard — Docker Compose
 # =============================================================================
 # Usage:
 #   docker compose up --build        # Start all services
@@ -38,15 +38,15 @@ services:
     image: postgres:16-alpine
     container_name: guidelineguard-db
     environment:
-      POSTGRES_DB: ${DB_NAME:-msk_audit}
-      POSTGRES_USER: ${DB_USER:-msk_user}
+      POSTGRES_DB: ${DB_NAME:-guideline_guard}
+      POSTGRES_USER: ${DB_USER:-gg_user}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme_in_production}
     ports:
       - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-msk_user} -d ${DB_NAME:-msk_audit}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-gg_user} -d ${DB_NAME:-guideline_guard}"]
       interval: 5s
       timeout: 5s
       retries: 5
