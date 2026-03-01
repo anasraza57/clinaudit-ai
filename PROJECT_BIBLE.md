@@ -1,7 +1,7 @@
 # PROJECT BIBLE — GuidelineGuard
 
 > **Last Updated:** 2026-03-01
-> **Status:** Phase 3 COMPLETE — Next: Phase 4 (Retriever Agent)
+> **Status:** Phase 4 COMPLETE — Next: Phase 5 (Scorer Agent)
 
 ---
 
@@ -196,9 +196,12 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 - Colab notebook → proper Python modules
 - GPT-3.5-turbo → GPT-4o-mini or better (via abstraction layer)
 - Flask JSON-RPC → direct function calls within a unified pipeline
-- Global mutable state → proper state management
+- Global mutable state → proper state management (singleton Embedder + VectorStore with load/unload)
 - Truncated guidelines → intelligent chunking with sufficient context
 - Manual test cases → automated test suite
+- Naive "guidelines for concept_name" queries → expert-crafted templates + LLM queries from Query Agent
+- No deduplication → merge + dedup results across multiple queries per diagnosis
+- `faiss.normalize_L2` on non-writable tensors → numpy normalization (fixed segfault bug)
 
 ---
 
@@ -331,12 +334,14 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - [x] Update learning docs — `06-query-agent-explained.md`
 - [x] Update PROJECT_BIBLE.md
 
-### Phase 4: Retriever Agent
-- [ ] Build embedding pipeline (PubMedBERT)
-- [ ] Build Retriever Agent with FAISS search
-- [ ] Implement intelligent result ranking and filtering
-- [ ] Write tests
-- [ ] Update learning docs + PROJECT_BIBLE.md
+### Phase 4: Retriever Agent ✅ COMPLETE
+- [x] Build PubMedBERT embedding service — `src/services/embedder.py` (singleton, load/encode/unload)
+- [x] Build Retriever Agent — `src/agents/retriever.py` (embed queries, search FAISS, merge, dedup, rank)
+- [x] Multi-query aggregation with deduplication (same guideline from multiple queries kept once with best score)
+- [x] Fix faiss.normalize_L2 segfault — replaced with numpy normalization
+- [x] Write tests — 144/144 passing (13 embedder + 14 retriever, using tiny BERT model for speed)
+- [x] Update learning docs — `07-retriever-agent-explained.md`
+- [x] Update PROJECT_BIBLE.md
 
 ### Phase 5: Scorer Agent
 - [ ] Design scoring prompts and rubric
@@ -419,6 +424,14 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - ✅ Tests — 117/117 passing (35 new: template matching, default queries, agent with/without LLM, mock LLM, dataclasses) (2026-03-01)
 - ✅ Learning doc — `docs/learning/06-query-agent-explained.md` (2026-03-01)
 
+### Phase 4: Retriever Agent ✅ COMPLETE
+- ✅ PubMedBERT Embedder service — loads model, encodes text to 768-dim vectors with mean pooling + L2 norm (2026-03-01)
+- ✅ Retriever Agent — embeds queries, searches FAISS, merges/deduplicates across multiple queries per diagnosis (2026-03-01)
+- ✅ Fixed faiss.normalize_L2 segfault — replaced with numpy normalization (torch tensors are non-writable) (2026-03-01)
+- ✅ Data classes — GuidelineMatch, DiagnosisGuidelines (with guideline_texts/titles helpers), RetrievalResult (2026-03-01)
+- ✅ Tests — 144/144 passing (13 embedder using bert-tiny for speed + 14 retriever with mocked embedder/store) (2026-03-01)
+- ✅ Learning doc — `docs/learning/07-retriever-agent-explained.md` (2026-03-01)
+
 ---
 
 ## 6. Decisions Log
@@ -473,6 +486,13 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - Pure template generation — wouldn't handle unusual diagnoses like "Acquired hallux valgus" or "Dupuytren's contracture".
 **Reasoning:** For common MSK conditions (~15 templates), we can write better queries than an LLM because we know how NICE guidelines are titled and structured. Templates are free, instant, deterministic, and can be empirically tuned against the FAISS index. For rare diagnoses, the LLM generates queries with episode context (treatments, referrals). Default queries ensure the pipeline never fails. **Implemented:** `src/agents/query.py`.
 
+### Decision 007: Numpy L2 normalization over faiss.normalize_L2 (2026-03-01)
+**Context:** Embedding vectors need L2 normalization before FAISS search (so inner product = cosine similarity). Cyprian used `faiss.normalize_L2()`.
+**Choice:** Pure numpy normalization (`embedding / np.linalg.norm(embedding)`).
+**Alternatives rejected:**
+- `faiss.normalize_L2()` — causes segmentation fault when called on numpy arrays derived from PyTorch tensors (non-writable memory). Known compatibility issue between faiss-cpu, torch, and numpy on macOS.
+**Reasoning:** Mathematically identical result. Numpy normalization creates a new array, avoiding the in-place modification that crashes. No performance difference for our use case. **Implemented:** `src/services/embedder.py`.
+
 ---
 
 ## 7. Current State Summary
@@ -482,23 +502,25 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 **Phase 1:** COMPLETE — Database, migrations, data import, vector store, 4327 patients + 1656 guidelines loaded
 **Phase 2:** COMPLETE — Extractor Agent with SNOMED categoriser
 **Phase 3:** COMPLETE — Query Agent with template-based + LLM query generation
+**Phase 4:** COMPLETE — Retriever Agent with PubMedBERT embeddings + FAISS search
 
-**What was done in Phase 3:**
-- Query Agent: takes ExtractionResult, generates 1-3 search queries per diagnosis for FAISS retrieval
-- Three-tier approach: hand-crafted templates (~15 MSK conditions) → LLM generation (with episode context) → default generic queries
-- Templates are optimised for PubMedBERT similarity (use NICE guideline language)
-- Data classes: DiagnosisQueries (per-diagnosis queries with source tracking), QueryResult (patient-level output with summary)
-- 117 unit tests passing (up from 82 in Phase 2, +35 new)
-- Learning doc: `docs/learning/06-query-agent-explained.md`
+**What was done in Phase 4:**
+- PubMedBERT Embedder service: loads model, encodes text → 768-dim vectors (mean pooling + L2 normalisation)
+- Retriever Agent: embeds queries via Embedder, searches FAISS via VectorStore, merges/deduplicates results
+- Multi-query aggregation: 3 queries per diagnosis → search FAISS for each → merge results keeping best scores → top-K unique guidelines
+- Fixed faiss.normalize_L2 segfault (torch tensor memory not writable → use numpy normalization instead)
+- 144 unit tests passing (up from 117 in Phase 3, +27 new: 13 embedder + 14 retriever)
+- Learning doc: `docs/learning/07-retriever-agent-explained.md`
 
 **Blockers:** None.
 
-**Next session should start with:** Phase 4 — Retriever Agent
-1. Build PubMedBERT embedding pipeline for query text → vectors
-2. Build Retriever Agent that uses FAISS to find relevant guidelines
-3. Implement result ranking and filtering
-4. Write tests
-5. Update learning docs + PROJECT_BIBLE.md
+**Next session should start with:** Phase 5 — Scorer Agent
+1. Design scoring prompts and rubric for guideline adherence evaluation
+2. Build Scorer Agent using LLM abstraction
+3. Implement per-diagnosis scoring with explanations
+4. Implement aggregate score calculation
+5. Write tests
+6. Update learning docs + PROJECT_BIBLE.md
 
 ---
 
@@ -507,6 +529,8 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - **Local PostgreSQL port conflict:** Host machine has a native PostgreSQL on port 5432, so our Docker DB uses port 5433. When running Alembic or scripts locally, must set `DB_HOST=localhost DB_PORT=5433`.
 - **torch version pinned to 2.2.2:** Python 3.11 doesn't support torch 2.5.1. Will need updating if Python is upgraded.
 - **SNOMED categoriser coverage at 84%:** 192 of 1,261 concepts require LLM fallback. Coverage could be improved by adding more patterns, but diminishing returns — LLM handles the rest.
+- **faiss.normalize_L2 segfault on macOS:** `faiss.normalize_L2()` crashes when called on numpy arrays from PyTorch tensors. Worked around by using numpy normalization instead. May not affect Linux/Docker.
+- **Embedder tests use bert-tiny model:** Real PubMedBERT (~440MB) too large for unit tests. Tests use `prajjwal1/bert-tiny` (17MB, 128-dim) — same encoding logic, different weights. Integration tests with real model needed.
 
 ---
 
