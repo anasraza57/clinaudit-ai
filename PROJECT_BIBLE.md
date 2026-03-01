@@ -144,7 +144,7 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 - The idea of FHIR-based lookups (but we need an alternative since HADES isn't available)
 
 **What we're replacing:**
-- FHIR server dependency → we'll use a local SNOMED lookup approach or the SNOMED CT API
+- FHIR server dependency → rule-based regex categoriser + LLM fallback (84%/16% split, no external server)
 - Mistral-7B → OpenAI API (with provider abstraction)
 - Hardcoded paths → environment variables and config
 - Raw LangGraph → our own clean pipeline orchestration
@@ -211,8 +211,15 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 | Cleaned patient data | `Cleaned Data/msk_valid_notes.csv` | Available | 21.5K rows, 4.3K patients, CSV |
 | NICE guidelines | `Cyprian/guidelines.csv` | Available | 1,656 documents with clean text |
 | FAISS index | `Cyprian/guidelines.index` | Available | Pre-built, 4.9MB, 768-dim vectors |
-| FAISS index (alt) | `Cyprian/new_guidelines.index` | Available | Second version, same size |
 | Guidelines JSONL | `Cyprian/open_guidelines.jsonl` | Available | Raw guidelines in JSONL format |
+
+**In our repo (`data/` directory, tracked in git):**
+
+| Asset | Size | Notes |
+|-------|------|-------|
+| `data/msk_valid_notes.csv` | 2.5 MB | Cleaned patient data (4,327 patients, 21,530 entries) |
+| `data/guidelines.csv.gz` | 24 MB | Compressed NICE guidelines (1,656 documents) |
+| `data/guidelines.index` | 4.9 MB | Pre-built FAISS index (768-dim PubMedBERT vectors) |
 
 ---
 
@@ -254,7 +261,7 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 | **LLM (default)** | OpenAI GPT-4o-mini | Good balance of cost/quality for medical reasoning. Abstraction layer allows swapping. |
 | **LLM Abstraction** | Custom provider pattern | Strategy pattern — swap providers via env var, zero code changes |
 | **Pipeline Orchestration** | Custom pipeline (not LangGraph) | LangGraph adds complexity without proportional benefit for a linear 4-step pipeline. Simple, testable functions are better. |
-| **Medical Coding** | SNOMED CT lookup (local/API) | Essential for categorising clinical entries. We'll build a lightweight lookup that doesn't require a full FHIR server. |
+| **Medical Coding** | Rule-based regex + LLM fallback | Two-tier SNOMED categoriser: regex patterns handle 84% of concepts, LLM classifies the remaining 16%. No FHIR server needed. |
 | **Configuration** | Pydantic Settings | Type-safe, validates on startup, reads from .env files |
 | **Logging** | Python `logging` + `structlog` | Structured JSON logs, correlation IDs, proper levels |
 | **Containerisation** | Docker + Docker Compose | Reproducible environments, one-command setup |
@@ -440,11 +447,12 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 
 ### Decision 005: SNOMED lookup without FHIR server (2026-03-01)
 **Context:** Hiruni's implementation required a local HADES FHIR server for SNOMED lookups. This server is not included and is complex to set up.
-**Choice:** Build a lightweight SNOMED categorisation layer using the data we already have + LLM-assisted classification where needed.
+**Choice:** Two-tier SNOMED categoriser: rule-based regex patterns (84% coverage) + LLM fallback (16%).
 **Alternatives rejected:**
 - Requiring HADES FHIR server — creates a heavy external dependency, not included in project files, complex to configure.
 - NHS SNOMED CT API — requires registration, rate limits, external dependency.
-**Reasoning:** The cleaned dataset already contains `ConceptDisplay` (human-readable SNOMED terms). We can categorise many entries by pattern matching on known term patterns (e.g., terms containing "pain", "fracture" → diagnosis; "referral" → referral; "injection" → procedure). For ambiguous cases, the LLM can classify. This eliminates the FHIR server dependency entirely.
+- Pure LLM classification — unnecessary cost when most concepts have obvious keywords.
+**Reasoning:** The dataset has 1,261 unique concepts with human-readable display names. Regex patterns matching medical keywords and suffixes (-itis, -ectomy, -pathy, -osis) classify 1,069 concepts instantly and for free. The remaining 192 edge cases use the LLM. Each concept is classified once and cached. **Implemented:** `src/services/snomed_categoriser.py`.
 
 ---
 
@@ -477,7 +485,9 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 
 ## 8. Known Issues / Tech Debt
 
-None yet — project is being built fresh.
+- **Local PostgreSQL port conflict:** Host machine has a native PostgreSQL on port 5432, so our Docker DB uses port 5433. When running Alembic or scripts locally, must set `DB_HOST=localhost DB_PORT=5433`.
+- **torch version pinned to 2.2.2:** Python 3.11 doesn't support torch 2.5.1. Will need updating if Python is upgraded.
+- **SNOMED categoriser coverage at 84%:** 192 of 1,261 concepts require LLM fallback. Coverage could be improved by adding more patterns, but diminishing returns — LLM handles the rest.
 
 ---
 
@@ -491,19 +501,45 @@ None yet — project is being built fresh.
 ### Quick Start
 ```bash
 # Clone the repository
-cd GuidelineGuard
+git clone https://github.com/anasraza57/guideline-guard.git
+cd guideline-guard
 
 # Copy environment template and fill in your values
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env — at minimum, set OPENAI_API_KEY
 
-# Start everything
-docker compose up --build
+# Set up virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# Start the database
+docker compose up -d db
+
+# Run database migrations
+DB_HOST=localhost alembic upgrade head
+
+# Import data into PostgreSQL
+DB_HOST=localhost python3 scripts/import_data.py
+
+# Start the app
+DB_HOST=localhost uvicorn src.main:app --reload
 
 # The API will be available at http://localhost:8000
 # API docs at http://localhost:8000/docs
 # Health check at http://localhost:8000/health
 ```
 
+### Running Tests
+```bash
+source .venv/bin/activate
+python -m pytest tests/ -v
+```
+
 ### Environment Variables
 See `.env.example` for all required variables with descriptions.
+
+### Important Notes
+- Database runs on port **5433** (not 5432) to avoid conflicts with local PostgreSQL.
+- When running commands locally (not inside Docker), always set `DB_HOST=localhost`.
+- Guidelines CSV is stored compressed (`data/guidelines.csv.gz`). The import script decompresses on the fly.

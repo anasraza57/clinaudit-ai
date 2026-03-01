@@ -69,6 +69,76 @@ Patient: pat-001
 
 The diagnoses from the Extractor's output are passed to the **Query Agent** (Stage 2), which generates search queries to find relevant NICE guidelines for each diagnosis. The treatments and referrals are later compared against those guidelines by the **Scorer Agent** (Stage 4).
 
+## Deep Dive: How the Rule-Based Patterns Work
+
+### What Are Regex Patterns?
+
+Regular expressions (regex) are text-matching rules. We use them to scan the concept display text and decide what category it belongs to. For example:
+
+```python
+_p(r"\bpain\b", "diagnosis")       # Matches "pain" as a whole word
+_p(r"\breferral\b", "referral")    # Matches "referral" as a whole word
+_p(r"\binjection\b", "treatment")  # Matches "injection" as a whole word
+```
+
+The `\b` means **word boundary** — so `\bpain\b` matches "Low back pain" but would NOT match "painting" or "painful". The `r` prefix means it's a raw string (Python won't interpret backslashes specially).
+
+### Why Patterns Are Checked in Order
+
+Patterns are evaluated **top to bottom — first match wins**. This ordering matters because some concepts match multiple categories:
+
+- "Review of medication" contains both "review" (administrative) AND "medication" (treatment)
+- "Referral for X-ray" contains both "referral" AND "X-ray" (investigation)
+
+We want "Review of medication" to be **administrative** (it's a review, not prescribing medication), so administrative rules come before treatment rules. Similarly, "Referral for X-ray" is a **referral** action, not an investigation itself.
+
+This was an actual bug we caught and fixed during development.
+
+### Three Rounds of Pattern Building
+
+We didn't write all the patterns at once. Instead, we built them iteratively by testing against the real database:
+
+**Round 1 — Core keywords:**
+```
+pain, fracture, referral, injection, x-ray, consultation, certificate...
+```
+Result: 70% coverage (885 / 1,261 concepts matched)
+
+**Round 2 — Medical suffixes:**
+```
+-itis (inflammation: tendinitis, fasciitis, epicondylitis)
+-pathy (disease: neuropathy, arthropathy)
+-osis (condition: stenosis, scoliosis, osteoporosis)
+```
+Plus specific terms: abrasion, abscess, cyst, wound, burn, etc.
+Result: 81% coverage (1,022 / 1,261)
+
+**Round 3 — Surgical suffixes and remaining gaps:**
+```
+-ectomy (surgical removal: bursectomy, appendectomy)
+-otomy (surgical incision: osteotomy)
+-plasty (surgical repair: arthroplasty)
+```
+Plus: vaccine, cast, sling, care plan, follow-up, blood pressure, etc.
+Result: 84% coverage (1,069 / 1,261)
+
+### Why Not 100% Rules?
+
+The remaining 192 concepts are genuine edge cases that don't follow obvious keyword patterns — things like "Bandy legged", "Acquired hallux valgus", or "Application of adhesive skin closure". For these, we fall back to the LLM which can understand medical meaning beyond simple keywords.
+
+Since we only have 1,261 unique concepts and classify each one **once** (then cache it), the LLM cost is negligible — roughly 192 API calls total, ever.
+
+### Pattern Categories and Examples
+
+| Category | Pattern Examples | What They Match |
+|----------|-----------------|-----------------|
+| **diagnosis** | `\bpain\b`, `\bfracture\b`, `\b\w+itis\b` | "Low back pain", "Finger fracture", "Tendinitis" |
+| **referral** | `\breferral\b`, `\brefer(?:red)?\s+to\b` | "Referral to orthopaedics", "Referred to physio" |
+| **treatment** | `\binjection\b`, `\bprescription\b`, `\bvaccin` | "Steroid injection", "Prescription of drug" |
+| **investigation** | `\bx[- ]?ray\b`, `\bmri\b`, `\bblood\s+test\b` | "X-ray of knee", "MRI scan", "Blood test" |
+| **procedure** | `\b\w+ectomy\b`, `\b\w+plasty\b`, `\barthroscop` | "Bursectomy", "Arthroplasty", "Arthroscopy" |
+| **administrative** | `\breview\b`, `\bconsultation\b`, `\bcertificate\b` | "Medication review", "Telephone consultation" |
+
 ## How This Differs from Hiruni's Approach
 
 Hiruni's extractor required a running FHIR server (HADES) to look up SNOMED codes and parse their Fully Specified Names for semantic tags like "(disorder)" and "(procedure)". Our approach:
