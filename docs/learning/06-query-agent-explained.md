@@ -133,53 +133,235 @@ The `QueryResult` is passed to the **Retriever Agent** (Stage 3), which:
 3. Searches the FAISS index for the top-5 most similar guideline passages
 4. Returns the matched guideline texts for the Scorer Agent to evaluate
 
-## How This Differs from Hiruni's Approach
+## Hiruni's Previous Approach (In Detail)
 
-### What Hiruni Did
+### How Her Query Agent Worked
 
-Hiruni's `QueryAgent` used a local Mistral-7B model (via `llama_cpp`) to generate all queries:
+Hiruni's approach was simple: **send everything to a local LLM**. Every single diagnosis — no matter how common or straightforward — went through the same path.
+
+Here's her actual code (simplified for readability):
 
 ```python
+from llama_cpp import Llama
+
 class QueryAgent:
-    def __init__(self, model_path):
-        self.llm = Llama(model_path=model_path, n_ctx=4096)
+    def __init__(self, model_path: str):
+        # Load a 4GB Mistral-7B model into RAM
+        self.llm = Llama(
+            model_path=model_path,  # "C:\Users\hirun\agentic-msk\models\mistral-7b-instruct-v0.1.Q4_K_M.gguf"
+            n_ctx=4096,
+            n_threads=8
+        )
+
+    def format_extractor_output(self, extracted_data):
+        # Turn extracted concepts into a readable string
+        return "\n".join(
+            f"[{item['type']}] {item['term']} ({item['concept_id']}) on {item['date']}"
+            for item in extracted_data
+        )
 
     def generate(self, extracted_data):
-        prompt = f"Generate 1-3 search queries per concept..."
+        extractor_text = self.format_extractor_output(extracted_data)
+        prompt = f"""
+You are a medical query generation assistant.
+Input: List of extracted medical concepts from a clinical note.
+Output: Generate 1–3 concise search queries per concept to retrieve clinical guidelines.
+Keep queries short and include relevant terms like "clinical guideline",
+"management recommendations", or "treatment protocol".
+Only output queries, one per line.
+
+Input:
+{extractor_text}
+"""
         output = self.llm(prompt, max_tokens=200)
-        return [line.strip() for line in output.split("\n")]
+        text = output["choices"][0]["text"].strip()
+        return [line.strip("- ").strip() for line in text.split("\n") if line.strip()]
 ```
 
-### Problems with Hiruni's Approach
+And here's how it was wired into the pipeline using LangGraph:
 
-1. **Underpowered model** — Mistral-7B is a general-purpose model, not optimised for medical query generation. It doesn't know how NICE guidelines are structured or titled.
-2. **Local model dependency** — requires downloading a 4GB model file and having enough RAM to run it
-3. **Hardcoded model path** — `C:\Users\hirun\agentic-msk\models\mistral-7b-instruct-v0.1.Q4_K_M.gguf`
-4. **No fallback** — if the LLM fails, the entire pipeline fails
-5. **No optimisation for PubMedBERT** — the queries aren't tailored for semantic similarity search
-6. **All queries go through LLM** — even for "Low back pain" where a template would be better and faster
+```python
+MODEL_PATH = r"C:\Users\hirun\agentic-msk\models\mistral-7b-instruct-v0.1.Q4_K_M.gguf"
+query_agent_instance = QueryAgent(model_path=MODEL_PATH)
 
-### What We Improved
+def query_node(state):
+    state["queries"] = query_agent_instance.generate(state["extracted_data"])
+    return state
+```
 
-| Aspect | Hiruni | Ours |
+### What This Means in Practice
+
+Let's say a patient has "Low back pain". Here's what Hiruni's code does:
+
+1. Format it as: `[disorder] Low back pain (279039007) on 2024-01-15`
+2. Send the entire prompt to Mistral-7B running locally
+3. Wait for Mistral-7B to generate text (~2-5 seconds per diagnosis on CPU)
+4. Parse the response by splitting on newlines
+5. Hope the output is well-formatted
+
+The LLM might return something like:
+```
+- low back pain clinical guideline
+- management recommendations for back pain
+- treatment protocol for lumbar pain
+```
+
+### The Problems
+
+**1. Underpowered model for the task.** Mistral-7B is a general-purpose 7-billion-parameter model. It's decent at following instructions, but it doesn't know:
+- How NICE guidelines are titled (e.g., "NG59: Low back pain and sciatica in over 16s")
+- What clinical language PubMedBERT responds best to
+- That our guideline database is specifically NICE UK guidelines, not general medical literature
+
+So it produces **generic medical queries** instead of **targeted guideline queries**. The difference matters — "low back pain clinical guideline" will match many irrelevant things in our FAISS index, while "NICE guidelines for assessment and management of low back pain and sciatica" will match the actual NICE guideline document.
+
+**2. Every diagnosis goes through the LLM.** Even "Low back pain" — arguably the most common MSK diagnosis in our dataset — requires a full LLM inference. This is wasteful because:
+- We know exactly what NICE guidelines exist for low back pain
+- We can write better search queries ourselves than Mistral-7B would generate
+- We're paying the inference cost (time + compute) for zero benefit
+
+**3. Local model dependency.** The code requires:
+- A 4GB model file downloaded to a specific Windows path
+- Enough RAM to load the model (~8GB minimum)
+- The `llama_cpp` library compiled with appropriate CPU/GPU support
+- Nobody else can run this without replicating Hiruni's exact setup
+
+**4. Hardcoded path.** `C:\Users\hirun\agentic-msk\models\mistral-7b-instruct-v0.1.Q4_K_M.gguf` — this is a Windows-specific absolute path to Hiruni's personal machine. It's not even configurable.
+
+**5. No error handling.** If the model fails to load, the format is wrong, or inference produces garbage — the entire pipeline crashes. There's no try/except, no fallback, no graceful degradation.
+
+**6. No context awareness.** The prompt sends the diagnosis but doesn't include what treatments or referrals the patient received. This context could help generate more targeted queries (e.g., if the patient was referred to orthopaedics, we should search for referral criteria guidelines).
+
+## Why We Need Three Tiers
+
+### The Core Insight
+
+Not all diagnoses are equally difficult to search for. Consider these three cases:
+
+| Diagnosis | How Often It Appears | How Easy to Query |
 |---|---|---|
-| **Query source** | All LLM-generated | Templates for common, LLM for rare, defaults as fallback |
-| **LLM model** | Mistral-7B (local, weak) | GPT-4o-mini via API (via provider abstraction, swappable) |
-| **Query quality** | Generic medical queries | Queries tailored to NICE guideline language and PubMedBERT similarity |
-| **Reliability** | No fallback — fails if LLM fails | Three-tier fallback: template → LLM → default |
-| **Dependencies** | 4GB local model file | Zero (templates are in code; LLM is optional) |
-| **Speed** | Slow (local inference) | Instant for templates, fast API for LLM |
-| **Portability** | Hardcoded Windows path | Works anywhere |
-| **Context awareness** | No episode context | Includes treatments/referrals in LLM prompt |
+| "Low back pain" | Very common (~15% of patients) | Trivial — we know the exact NICE guideline |
+| "Acquired hallux valgus" | Rare | Moderate — an LLM can reason about it |
+| "Bandy legged" | Very rare | Hard — even an LLM might struggle |
+
+It makes no sense to use the same approach for all three. That's like using a GPS to navigate to your own kitchen — the right tool depends on the difficulty of the problem.
+
+### Tier 1: Templates — Why Hand-Crafted Queries Are Best for Common Conditions
+
+For "Low back pain", we don't need an LLM to tell us what to search for. We **know** that:
+
+- NICE has a guideline called "Low back pain and sciatica in over 16s: assessment and management" (NG59)
+- The guideline covers assessment, pharmacological treatment, non-pharmacological treatment, and referral criteria
+- PubMedBERT responds best to clinical language that matches guideline titles
+
+So we write queries by hand:
+
+```python
+"low back pain": [
+    "NICE guidelines for assessment and management of low back pain and sciatica",
+    "non-specific low back pain pharmacological and non-pharmacological treatment",
+    "low back pain referral criteria and imaging recommendations",
+]
+```
+
+These queries are **better than anything an LLM would generate** because:
+- They use the exact language of NICE guidelines
+- They're tuned for PubMedBERT semantic similarity
+- Each covers a different aspect of care (overview, treatment, referral)
+- They're deterministic — same diagnosis always produces same queries
+- They cost nothing and take zero time
+
+We have templates for ~15 common MSK conditions. Together, these cover the majority of diagnoses in our dataset because MSK conditions follow a power law distribution — a few common conditions (back pain, osteoarthritis, shoulder pain) account for most cases.
+
+**The analogy:** If you're a librarian and someone asks for "the main Shakespeare plays", you don't need to look them up — you already know where Hamlet, Macbeth, and Romeo and Juliet are shelved. You only need the catalogue system for obscure requests.
+
+### Tier 2: LLM — Why We Still Need AI for Rare Diagnoses
+
+Templates can't cover everything. Our dataset has hundreds of unique diagnoses, and some are unusual:
+
+- "Acquired hallux valgus" (bunion deformity)
+- "Dupuytren's contracture" (finger condition)
+- "Chronic regional pain syndrome"
+- "Meralgia paraesthetica" (thigh nerve compression)
+
+Writing templates for every possible diagnosis would be impractical and fragile. Instead, we ask the LLM to reason about these cases. The LLM can:
+
+- Understand that "hallux valgus" relates to foot deformity guidelines
+- Know that "Dupuytren's" relates to hand surgery referral criteria
+- Generate queries using appropriate clinical terminology
+
+Our LLM prompt is also smarter than Hiruni's — it includes **episode context**:
+
+```
+Diagnosis: Acquired hallux valgus
+Context: Referrals: Orthopaedic referral; Treatments: Prescription of drug
+```
+
+This helps the LLM generate queries about both conservative management AND surgical referral criteria, because it knows the patient was actually referred.
+
+We also use a much stronger model than Hiruni did — GPT-4o-mini (via our provider abstraction) instead of Mistral-7B. And since templates handle the common cases, the LLM is only called for rare diagnoses — keeping costs minimal.
+
+### Tier 3: Defaults — Why We Need a Safety Net
+
+What if:
+- The diagnosis doesn't match any template AND
+- The LLM is unavailable (no API key, rate limit, network error)
+
+Without Tier 3, the pipeline would crash — exactly what happened with Hiruni's code. Our default queries ensure the pipeline **always produces output**, even in degraded conditions:
+
+```
+1. "NICE clinical guidelines for {diagnosis} management"
+2. "{diagnosis} treatment options and recommendations"
+3. "{diagnosis} referral criteria and investigations"
+```
+
+These aren't as optimised as templates or LLM queries, but they're functional. The Retriever will still find *something* relevant, and the Scorer can still evaluate *something* — even if the retrieval quality is slightly lower.
+
+**The engineering principle:** A system that produces a slightly imperfect result is infinitely more useful than a system that crashes.
+
+### How the Three Tiers Work Together
+
+```
+Patient diagnosed with "Low back pain"
+  → Tier 1 matches "low back pain" template
+  → Returns 3 expert-crafted queries
+  → LLM never called (saves time and money)
+
+Patient diagnosed with "Dupuytren's contracture"
+  → Tier 1: no template match
+  → Tier 2: LLM generates 3 queries with episode context
+  → Returns LLM queries
+
+Patient diagnosed with "Unusual rare condition" (and LLM is down)
+  → Tier 1: no template match
+  → Tier 2: LLM call fails (API error)
+  → Tier 3: returns 3 generic default queries
+  → Pipeline continues (degraded but functional)
+```
+
+### Honest Comparison
+
+| | Hiruni's (Pure LLM) | Ours (3-Tier) |
+|---|---|---|
+| **Query quality for common diagnoses** | Mediocre — Mistral-7B doesn't know NICE guidelines | Excellent — hand-crafted by us to match guideline language |
+| **Query quality for rare diagnoses** | Mediocre — Mistral-7B is weak at medical reasoning | Good — GPT-4o-mini with episode context |
+| **Speed** | Slow — every diagnosis needs LLM inference (~2-5s each) | Mostly instant — templates for common cases, LLM only for rare |
+| **Cost** | Free (local model) but high compute cost | Minimal — LLM only for rare diagnoses |
+| **Reliability** | Fragile — no fallback, model load failure = crash | Robust — three fallback layers, pipeline never crashes |
+| **Dependencies** | 4GB model file + llama_cpp + enough RAM | Zero (templates in code; LLM and defaults are optional layers) |
+| **Portability** | Hardcoded to Hiruni's Windows machine | Works anywhere with `pip install` |
+| **Determinism** | Non-deterministic — LLM may give different queries each time | Deterministic for common cases (templates), LLM only for rare |
+| **Tunability** | Can only change the prompt | Can tune individual templates per condition + change LLM prompt |
 
 ### Is Our Approach Better?
 
-**Yes, unambiguously.** Our three-tier approach means:
-- Common diagnoses get **expert-crafted queries** that we know match well with our FAISS index (templates)
-- Rare diagnoses get **LLM-generated queries** using a much stronger model with episode context
-- If everything fails, we still get **reasonable default queries** — the pipeline never breaks
+**Yes, and here's the key insight:** Hiruni treated query generation as a uniform problem — every diagnosis gets the same treatment (send to LLM). But the real problem has different difficulty levels. Our three-tier approach recognises this and uses the right tool for each level:
 
-The template approach is particularly clever because we can test and tune these queries against the actual FAISS index to maximise retrieval quality. An LLM doesn't have this advantage — it's guessing what queries might work, while our templates are empirically validated.
+- **Easy problems** (common MSK diagnoses) → simple, fast, perfect solution (templates)
+- **Medium problems** (unusual diagnoses) → powerful tool (LLM with context)
+- **Edge cases** (LLM unavailable) → safety net (defaults)
+
+This is a general software engineering principle called **graceful degradation** — the system delivers the best possible result at each level and never completely fails.
 
 ## Configuration
 
