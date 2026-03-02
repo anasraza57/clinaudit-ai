@@ -1,7 +1,7 @@
 # PROJECT BIBLE — GuidelineGuard
 
 > **Last Updated:** 2026-03-02
-> **Status:** Phase 7a COMPLETE (Reporting Endpoints) — Next: Phase 7b (Gold-Standard Validation)
+> **Status:** Phase 7a COMPLETE (Reporting Endpoints) + Post-7a Crash Fixes — Next: Phase 7b (Gold-Standard Validation)
 
 ---
 
@@ -267,7 +267,7 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 | **LLM (default)** | OpenAI GPT-4o-mini | Good balance of cost/quality for medical reasoning. Abstraction layer allows swapping. |
 | **LLM Abstraction** | Custom provider pattern | Strategy pattern — swap providers via env var, zero code changes |
 | **Pipeline Orchestration** | Custom pipeline (not LangGraph) | LangGraph adds complexity without proportional benefit for a linear 4-step pipeline. Simple, testable functions are better. |
-| **Medical Coding** | Rule-based regex + LLM fallback | Two-tier SNOMED categoriser: regex patterns handle 84% of concepts, LLM classifies the remaining 16%. No FHIR server needed. |
+| **Medical Coding** | Rule-based regex + LLM fallback | Two-tier SNOMED categoriser: regex patterns handle 84% of concepts, LLM classifies the remaining 16% in batches of 50. Categories persisted to DB — classified once, never repeated. No FHIR server needed. |
 | **Query Generation** | Templates + LLM + defaults | Three-tier: hand-crafted templates for ~15 common MSK conditions, LLM for rare diagnoses, generic defaults as fallback. Templates optimised for PubMedBERT similarity. |
 | **Guideline Scoring** | LLM with structured prompt | Per-diagnosis scoring via LLM (temperature=0), includes full clinical context + up to 2,000 chars of guideline text. Case-insensitive regex parsing of structured output. |
 | **Configuration** | Pydantic Settings | Type-safe, validates on startup, reads from .env files |
@@ -378,6 +378,22 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - [x] Update learning docs — `docs/learning/10-reporting-explained.md`
 - [x] Update PROJECT_BIBLE.md
 
+### Post-Phase 7a: Crash Fixes & Resilience ✅ COMPLETE
+- ✅ Fixed `flush()` → `commit()` in batch handler — job status was invisible to polling clients due to PostgreSQL transaction isolation (2026-03-02)
+- ✅ Per-patient session isolation — fresh DB session per patient prevents SQLAlchemy identity map memory growth (2026-03-02)
+- ✅ Batched SNOMED LLM categorisation — 322 individual API calls → 7 batched calls (50 concepts per prompt, JSON format) (2026-03-02)
+- ✅ Category persistence to DB — categories written to `clinical_entries.category` column, never re-classified (2026-03-02)
+- ✅ OpenAI client timeout (60s) + retries (max_retries=2) — prevents indefinite LLM hangs (2026-03-02)
+- ✅ Per-patient pipeline timeout (300s via asyncio.wait_for) — one slow patient can't stall the batch (2026-03-02)
+- ✅ `_save_patient_error_and_progress()` helper — stores failed AuditResult + updates job progress in clean session after timeout/error (2026-03-02)
+- ✅ `_recover_stale_jobs()` on startup — marks stuck jobs as "failed" when server restarts (2026-03-02)
+- ✅ `gc.collect()` every 10 patients + after batch completion — forces garbage collection (2026-03-02)
+- ✅ Pre-loaded PubMedBERT at startup — prevents crash from lazy loading during HTTP requests (2026-03-02)
+- ✅ Added `scripts/build_index.py` — rebuilds FAISS index from guidelines.csv (2026-03-02)
+- ✅ Improved Swagger docs — response_model, summary, Field descriptions on all endpoints (2026-03-02)
+- ✅ Added `GET /api/v1/data/stats`, `?limit=N` for batch, `GET /audit/jobs/{job_id}/results` pagination (2026-03-02)
+- ✅ Learning docs updated: `05-extractor-agent-explained.md`, `09-pipeline-integration-explained.md` (2026-03-02)
+
 ### Phase 7b: Gold-Standard Validation
 - [ ] Import gold-standard audit data (120 cases)
 - [ ] Run system against gold-standard cases
@@ -468,7 +484,7 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - ✅ Job tracking — `GET /api/v1/audit/jobs/{job_id}` returns progress (processed/total/failed) (2026-03-02)
 - ✅ Result retrieval — `GET /api/v1/audit/jobs/{job_id}/results` (paginated batch results) and `GET /api/v1/audit/results/{pat_id}` (per-patient results) (2026-03-02)
 - ✅ Error handling — per-patient error capture, early exits for missing data/no diagnoses, continues on failure (2026-03-02)
-- ✅ SNOMED category pre-loading — `load_categories_from_db()` loads all unique concepts once, caches across patients (2026-03-02)
+- ✅ SNOMED category loading — `load_categories_from_db()` loads cached categories from DB, classifies new ones (rules + batched LLM), writes back to DB, populates in-memory cache (2026-03-02)
 - ✅ Results stored in AuditResult table — overall_score, counts, full JSON breakdown in details_json (2026-03-02)
 - ✅ Router registered in main.py — `app.include_router(audit_router, prefix="/api/v1")` (2026-03-02)
 - ✅ Tests — 190/190 passing (14 new: 5 PipelineResult + 9 AuditPipeline) (2026-03-02)
@@ -531,7 +547,7 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - Requiring HADES FHIR server — creates a heavy external dependency, not included in project files, complex to configure.
 - NHS SNOMED CT API — requires registration, rate limits, external dependency.
 - Pure LLM classification — unnecessary cost when most concepts have obvious keywords.
-**Reasoning:** The dataset has 1,261 unique concepts with human-readable display names. Regex patterns matching medical keywords and suffixes (-itis, -ectomy, -pathy, -osis) classify 1,069 concepts instantly and for free. The remaining 192 edge cases use the LLM. Each concept is classified once and cached. **Implemented:** `src/services/snomed_categoriser.py`.
+**Reasoning:** The dataset has 1,261 unique concepts with human-readable display names. Regex patterns matching medical keywords and suffixes (-itis, -ectomy, -pathy, -osis) classify 1,069 concepts instantly and for free. The remaining 192 edge cases use the LLM in batches of 50 (7 API calls total). Each concept is classified once, persisted to the `clinical_entries.category` column, and never re-classified. **Implemented:** `src/services/snomed_categoriser.py`.
 
 ### Decision 006: Template-first query generation over pure LLM (2026-03-01)
 **Context:** Need to generate search queries from diagnoses for FAISS guideline retrieval.
@@ -571,7 +587,7 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - Celery — too heavy for a single-process deployment. No distributed workers needed.
 - Synchronous batch endpoint — would time out for large batches.
 - WebSocket streaming — more complex, no need for real-time updates (polling is fine).
-**Reasoning:** `BackgroundTasks` is built into FastAPI, requires no external broker, and integrates with our async pipeline. The client creates a job, gets back a job ID, and polls for progress. The background task commits progress every 10 patients and handles its own error recovery. **Implemented:** `src/api/routes/audit.py`.
+**Reasoning:** `BackgroundTasks` is built into FastAPI, requires no external broker, and integrates with our async pipeline. The client creates a job, gets back a job ID, and polls for progress. The background task uses per-patient session isolation (memory safety), per-patient timeouts (300s via `asyncio.wait_for`), commits after every patient, and handles its own error recovery. Stale jobs from crashes are cleaned up automatically on startup. **Implemented:** `src/api/routes/audit.py`.
 
 ### Decision 011: Separate reporting route file and service layer (2026-03-02)
 **Context:** Need reporting/analytics endpoints for reviewing audit results. Could add to existing `audit.py` routes or create separate files.
@@ -581,7 +597,47 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - No service layer — putting SQL queries in route handlers. Would make functions untestable without HTTP client, harder to extend for gold-standard metrics later.
 **Reasoning:** Separation of concerns: reporting service is independently testable, extensible (add `get_validation_metrics()` later), and keeps routes thin. The `_load_completed_results()` helper avoids query duplication between functions that need details_json parsing. Python-side aggregation is appropriate because ~4,327 patients is trivially small in memory and `details_json` is TEXT not JSONB.
 
-### Decision 012: aiosqlite for reporting tests (2026-03-02)
+### Decision 012: Batched SNOMED LLM categorisation (2026-03-02)
+**Context:** The original `categorise_by_llm` made one LLM call per unmatched concept (322 individual API calls). This caused out-of-memory crashes — each call accumulated HTTP response objects, connection state, and DEBUG-level log data. Combined with PubMedBERT (~440MB) already in memory, this exhausted available RAM.
+**Choice:** Batch 50 concepts per prompt using JSON response format.
+**Alternatives rejected:**
+- Keep individual calls (original) — causes OOM at 322 calls.
+- Batch with line-by-line text response — fragile, line alignment can shift if LLM adds/skips lines.
+**Reasoning:** JSON response format (`{"concept": "category", ...}`) maps each concept explicitly — no line-alignment risk. 322 calls → 7 calls. Falls back to individual calls if a batch fails to parse. 80% match threshold retries misses individually. `gc.collect()` between batches. **Implemented:** `src/services/snomed_categoriser.py`.
+
+### Decision 013: Category persistence to database (2026-03-02)
+**Context:** SNOMED categories were only stored in an in-memory cache. Server crash = all classification work lost = 7 LLM batch calls repeated on next run. The `clinical_entries.category` column existed since Phase 1 but was always NULL.
+**Choice:** Write classified categories back to the `clinical_entries.category` column after classification.
+**Alternatives rejected:**
+- Memory-only cache (original) — work lost on crash, LLM calls repeated every run.
+- Separate cache table — unnecessary, the column already exists on clinical_entries.
+**Reasoning:** Categories are stable (e.g., "Knee pain" is always "diagnosis"). Persist once, never re-classify. `load_categories_from_db()` now reads cached categories from DB first, only classifies uncategorised concepts, then writes results back. After first run: 0 LLM calls for categorisation. **Implemented:** `src/services/pipeline.py` (`load_categories_from_db`).
+
+### Decision 014: Per-patient session isolation in batch processing (2026-03-02)
+**Context:** The original batch handler used a single DB session for the entire batch. SQLAlchemy's identity map grew with every patient — all Patient, ClinicalEntry, and AuditResult objects accumulated in memory, causing OOM on large batches.
+**Choice:** Create a fresh DB session per patient; session is closed and identity map freed after each patient.
+**Alternatives rejected:**
+- Single session with `session.expunge_all()` — fragile, breaks relationships and lazy loading.
+- Single session with periodic `session.expire_all()` — still retains objects in identity map.
+**Reasoning:** Fresh session per patient guarantees constant memory usage regardless of batch size. Each session commit is atomic — if a patient fails, only that patient's session is lost. Progress is committed after every patient so polling sees real-time updates. **Implemented:** `src/api/routes/audit.py` (`_run_batch_background`).
+
+### Decision 015: OpenAI client timeout and per-patient pipeline timeout (2026-03-02)
+**Context:** No timeouts anywhere in the pipeline. OpenAI SDK defaults to a 10-minute timeout per call. A single slow LLM response could stall the entire batch for 10 minutes per call, and one patient could block indefinitely.
+**Choice:** Two-level timeouts: 60s per LLM call (on the OpenAI client), 300s per patient (via `asyncio.wait_for`).
+**Alternatives rejected:**
+- No timeouts (original) — hangs on slow responses, no recovery.
+- Server-wide timeout only — too coarse, doesn't catch per-patient stalls.
+**Reasoning:** 60s per LLM call is generous (most responses take 2-5s) but prevents indefinite hangs. 300s per patient covers the full pipeline (extraction + queries + retrieval + scoring). `max_retries=2` on the OpenAI client auto-retries transient errors. Both configurable via env vars (`OPENAI_REQUEST_TIMEOUT`, `PIPELINE_PATIENT_TIMEOUT`). **Implemented:** `src/config/settings.py`, `src/ai/openai_provider.py`, `src/api/routes/audit.py`.
+
+### Decision 016: Stale job recovery on startup (2026-03-02)
+**Context:** If the server crashes mid-batch, jobs stay stuck as "pending" or "running" forever. Polling clients see stale progress. No way to clean up without manual DB intervention.
+**Choice:** On every server startup, find stuck jobs and mark them "failed" with a descriptive message.
+**Alternatives rejected:**
+- Manual DB cleanup — requires developer intervention after every crash.
+- Auto-resume interrupted jobs — too complex, risk of processing patients twice.
+**Reasoning:** Simple, automatic, safe. Any job that's "pending" or "running" when the server starts is definitively stale (the background task died with the old process). Marking them "failed" lets polling clients know what happened. **Implemented:** `src/main.py` (`_recover_stale_jobs`).
+
+### Decision 017: aiosqlite for reporting tests (2026-03-02)
 **Context:** Reporting functions execute real SQL queries (aggregations, filters). Need to test actual query logic.
 **Choice:** In-memory SQLite via `aiosqlite` for test fixtures.
 **Alternatives rejected:**
@@ -596,7 +652,7 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 **Date:** 2026-03-02
 **Phase 0:** COMPLETE
 **Phase 1:** COMPLETE — Database, migrations, data import, vector store, 4327 patients + 1656 guidelines loaded
-**Phase 2:** COMPLETE — Extractor Agent with SNOMED categoriser
+**Phase 2:** COMPLETE — Extractor Agent with SNOMED categoriser (batched LLM, DB persistence)
 **Phase 3:** COMPLETE — Query Agent with template-based + LLM query generation
 **Phase 4:** COMPLETE — Retriever Agent with PubMedBERT embeddings + FAISS search
 **Phase 5:** COMPLETE — Scorer Agent with LLM-based guideline adherence scoring
@@ -645,15 +701,36 @@ Reports (read path):
 - Report API: `src/api/routes/reports.py`
 - Tests: `tests/unit/test_reporting.py`
 
-**Post-Phase 7a fixes (2026-03-02):**
-- Pre-loaded PubMedBERT embedder at startup in `src/main.py` lifespan handler — the HTTP server was crashing because the ~440MB model loaded lazily during the first request. Now loads on startup alongside FAISS index.
-- Fixed `Makefile` `run` target — added `DB_HOST=localhost` so `make run` works locally without manual env override.
-- Updated `README.md` — professional getting-started guide with all 9 API endpoints, pipeline diagram, usage examples (audit + reports), correct test count (216), correct project structure.
-- Added `scripts/build_index.py` — builds the FAISS guideline index from `guidelines.csv` using PubMedBERT. Previously we relied on Cyprian's pre-built index file; now the system can rebuild it from scratch. Encodes all 1,656 guideline texts in batches, L2-normalizes, and saves as `IndexFlatL2`.
-- Improved Swagger API docs — added `response_model`, `summary`, `Field(description=...)`, and expanded docstrings to all endpoints. Swagger UI now shows full response schemas and parameter descriptions.
-- Added `GET /api/v1/data/stats` endpoint — returns row counts for patients, clinical_entries, guidelines tables.
-- Added `?limit=N` to batch endpoint — `POST /api/v1/audit/batch?limit=50` audits a subset of patients.
-- Added `GET /api/v1/audit/jobs/{job_id}/results` with pagination — view all results from a batch run. Kept the original `GET /api/v1/audit/results/{pat_id}` for looking up a specific patient's results across all jobs.
+**Post-Phase 7a crash fixes (2026-03-02):**
+
+*Server stability fixes (batch audit was crashing):*
+- Fixed `flush()` → `commit()` — batch job status was invisible to polling clients because `flush()` doesn't commit the PostgreSQL transaction. Other sessions can't read uncommitted data.
+- Per-patient session isolation — each patient gets a fresh DB session. SQLAlchemy's identity map (which tracks every ORM object) is freed after each patient, keeping memory constant regardless of batch size.
+- Batched SNOMED LLM categorisation — `categorise_by_llm` was making 322 individual API calls (one per unmatched concept), causing OOM. Now batches 50 concepts per prompt using JSON response format → 7 API calls instead of 322. Falls back to individual calls on parse failure.
+- Category persistence to DB — categories written to `clinical_entries.category` column after classification. Subsequent runs load from DB with 0 LLM calls. Server crash doesn't lose categorisation work.
+- OpenAI client timeout (60s) + `max_retries=2` — default SDK timeout was 10 minutes. Now caps each LLM call at 60s and auto-retries transient errors.
+- Per-patient pipeline timeout (300s) — `asyncio.wait_for` prevents one slow patient from stalling the entire batch.
+- `_save_patient_error_and_progress()` helper — when a patient timeout/error kills its session, stores the failed AuditResult and updates job progress in a clean session.
+- `_recover_stale_jobs()` on startup — finds jobs stuck as "pending" or "running" from a previous crash and marks them "failed". Runs once per server boot.
+- `gc.collect()` every 10 patients + after batch completion — forces garbage collection to free memory promptly.
+
+*Other improvements:*
+- Pre-loaded PubMedBERT embedder at startup — the HTTP server was crashing because the ~440MB model loaded lazily during the first request. Now loads on startup alongside FAISS index.
+- Fixed `Makefile` `run` target — added `DB_HOST=localhost` so `make run` works locally.
+- Updated `README.md` — professional getting-started guide with pipeline diagram, all endpoints, usage examples.
+- Added `scripts/build_index.py` — builds FAISS index from `guidelines.csv` using PubMedBERT. Previously relied on Cyprian's pre-built file; now the system can rebuild from scratch.
+- Improved Swagger API docs — added `response_model`, `summary`, `Field(description=...)` to all endpoints.
+- Added `GET /api/v1/data/stats` — database row counts.
+- Added `?limit=N` to batch endpoint — `POST /api/v1/audit/batch?limit=50`.
+- Added `GET /api/v1/audit/jobs/{job_id}/results` with pagination.
+
+**Key files changed:**
+- `src/api/routes/audit.py` — per-patient sessions, timeouts, `_save_patient_error_and_progress`, gc.collect
+- `src/services/snomed_categoriser.py` — batched LLM categorisation (50 per prompt)
+- `src/services/pipeline.py` — category persistence (load from DB → classify new → write back)
+- `src/ai/openai_provider.py` — client timeout (60s) + max_retries (2)
+- `src/config/settings.py` — `openai_request_timeout`, `pipeline_patient_timeout`
+- `src/main.py` — `_recover_stale_jobs()`, PubMedBERT pre-loading
 
 **Blockers:** None.
 
@@ -672,7 +749,7 @@ Reports (read path):
 
 - **Local PostgreSQL port conflict:** Host machine has a native PostgreSQL on port 5432, so our Docker DB uses port 5433. When running Alembic or scripts locally, must set `DB_HOST=localhost DB_PORT=5433`.
 - **torch version pinned to 2.2.2:** Python 3.11 doesn't support torch 2.5.1. Will need updating if Python is upgraded.
-- **SNOMED categoriser coverage at 84%:** 192 of 1,261 concepts require LLM fallback. Coverage could be improved by adding more patterns, but diminishing returns — LLM handles the rest.
+- **SNOMED categoriser coverage at 84%:** 192 of 1,261 concepts require LLM fallback (now batched, 7 calls total). Coverage could be improved by adding more patterns, but diminishing returns — LLM handles the rest. Categories are persisted to DB after first classification.
 - **faiss.normalize_L2 segfault on macOS:** `faiss.normalize_L2()` crashes when called on numpy arrays from PyTorch tensors. Worked around by using numpy normalization instead. May not affect Linux/Docker.
 - **PubMedBERT requires ~2GB RAM:** The embedding model (~440MB on disk) needs significant memory. Loaded at startup via lifespan handler so it's ready before any HTTP request arrives.
 - **Embedder tests use bert-tiny model:** Real PubMedBERT (~440MB) too large for unit tests. Tests use `prajjwal1/bert-tiny` (17MB, 128-dim) — same encoding logic, different weights. Integration tests with real model needed.
@@ -739,3 +816,5 @@ See `.env.example` for all required variables with descriptions.
 - When running commands locally (not inside Docker), always set `DB_HOST=localhost`.
 - Guidelines CSV is stored compressed (`data/guidelines.csv.gz`). The import script decompresses on the fly.
 - First startup takes 30–60 seconds — the server pre-loads PubMedBERT (~440MB) and the FAISS index before accepting requests. Watch the logs for "Embedding model loaded" and "Vector store ready".
+- First batch run will make ~7 LLM calls to classify ~322 SNOMED concepts. After that, categories are persisted in the DB — subsequent runs need zero LLM calls for categorisation.
+- Timeout settings (configurable via env vars): `OPENAI_REQUEST_TIMEOUT=60` (seconds per LLM call), `PIPELINE_PATIENT_TIMEOUT=300` (seconds per patient in batch processing).
