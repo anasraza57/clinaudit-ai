@@ -1,7 +1,7 @@
 # PROJECT BIBLE — GuidelineGuard
 
-> **Last Updated:** 2026-03-01
-> **Status:** Phase 5 COMPLETE — Next: Phase 6 (Pipeline Integration)
+> **Last Updated:** 2026-03-02
+> **Status:** Phase 6 COMPLETE — Next: Phase 7 (Validation & Reporting)
 
 ---
 
@@ -358,14 +358,17 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - [x] Update learning docs — `08-scorer-agent-explained.md`
 - [x] Update PROJECT_BIBLE.md
 
-### Phase 6: Pipeline Integration
-- [ ] Build Pipeline orchestrator (chains all 4 agents)
-- [ ] Implement single-patient audit endpoint
-- [ ] Implement batch audit endpoint (process multiple patients)
-- [ ] Implement job tracking (async batch processing)
-- [ ] Error handling and retry logic
-- [ ] Write integration tests
-- [ ] Update learning docs + PROJECT_BIBLE.md
+### Phase 6: Pipeline Integration ✅ COMPLETE
+- [x] Build Pipeline orchestrator — `src/services/pipeline.py` (chains all 4 agents with DB I/O)
+- [x] Implement single-patient audit endpoint — `POST /api/v1/audit/patient/{pat_id}`
+- [x] Implement batch audit endpoint — `POST /api/v1/audit/batch` (background processing)
+- [x] Implement job tracking — `GET /api/v1/audit/jobs/{job_id}` (progress polling)
+- [x] Implement result retrieval — `GET /api/v1/audit/results/{pat_id}`
+- [x] Error handling — per-patient error capture, early exits, continues on failure
+- [x] SNOMED category pre-loading — load once, cache across all patients
+- [x] Write tests — 190/190 passing (14 new pipeline tests)
+- [x] Update learning docs — `09-pipeline-integration-explained.md`
+- [x] Update PROJECT_BIBLE.md
 
 ### Phase 7: Validation & Reporting
 - [ ] Import gold-standard audit data (120 cases)
@@ -449,6 +452,20 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - ✅ Tests — 176/176 passing (32 new: 8 parsing + 8 data classes + 12 agent + 4 formatting) (2026-03-01)
 - ✅ Learning doc — `docs/learning/08-scorer-agent-explained.md` (2026-03-01)
 
+### Phase 6: Pipeline Integration ✅ COMPLETE
+- ✅ Pipeline orchestrator — `src/services/pipeline.py` chains all 4 agents, handles DB I/O, error recovery (2026-03-02)
+- ✅ Audit API endpoints — `src/api/routes/audit.py` with 4 endpoints: single patient, batch, job status, results (2026-03-02)
+- ✅ Single patient audit — `POST /api/v1/audit/patient/{pat_id}` runs pipeline synchronously, returns scoring result (2026-03-02)
+- ✅ Batch audit — `POST /api/v1/audit/batch` runs in background with FastAPI BackgroundTasks, tracks via AuditJob (2026-03-02)
+- ✅ Job tracking — `GET /api/v1/audit/jobs/{job_id}` returns progress (processed/total/failed) (2026-03-02)
+- ✅ Result retrieval — `GET /api/v1/audit/results/{pat_id}` returns all audit results with JSON details (2026-03-02)
+- ✅ Error handling — per-patient error capture, early exits for missing data/no diagnoses, continues on failure (2026-03-02)
+- ✅ SNOMED category pre-loading — `load_categories_from_db()` loads all unique concepts once, caches across patients (2026-03-02)
+- ✅ Results stored in AuditResult table — overall_score, counts, full JSON breakdown in details_json (2026-03-02)
+- ✅ Router registered in main.py — `app.include_router(audit_router, prefix="/api/v1")` (2026-03-02)
+- ✅ Tests — 190/190 passing (14 new: 5 PipelineResult + 9 AuditPipeline) (2026-03-02)
+- ✅ Learning doc — `docs/learning/09-pipeline-integration-explained.md` (2026-03-02)
+
 ---
 
 ## 6. Decisions Log
@@ -526,44 +543,59 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - Throw an error — too aggressive, would halt processing.
 **Reasoning:** Defaulting to -1 is the conservative, safe choice. It ensures unparseable responses get flagged for human review rather than silently passing. Combined with the `error` field on DiagnosisScore, these cases can be easily identified and investigated.
 
+### Decision 010: Background tasks for batch processing (2026-03-02)
+**Context:** Batch auditing 4,327 patients will take hours (LLM calls for scoring). The HTTP request would time out.
+**Choice:** Use FastAPI `BackgroundTasks` to run the batch in a background coroutine with its own DB session.
+**Alternatives rejected:**
+- Celery — too heavy for a single-process deployment. No distributed workers needed.
+- Synchronous batch endpoint — would time out for large batches.
+- WebSocket streaming — more complex, no need for real-time updates (polling is fine).
+**Reasoning:** `BackgroundTasks` is built into FastAPI, requires no external broker, and integrates with our async pipeline. The client creates a job, gets back a job ID, and polls for progress. The background task commits progress every 10 patients and handles its own error recovery. **Implemented:** `src/api/routes/audit.py`.
+
 ---
 
 ## 7. Current State Summary
 
-**Date:** 2026-03-01
+**Date:** 2026-03-02
 **Phase 0:** COMPLETE
 **Phase 1:** COMPLETE — Database, migrations, data import, vector store, 4327 patients + 1656 guidelines loaded
 **Phase 2:** COMPLETE — Extractor Agent with SNOMED categoriser
 **Phase 3:** COMPLETE — Query Agent with template-based + LLM query generation
 **Phase 4:** COMPLETE — Retriever Agent with PubMedBERT embeddings + FAISS search
 **Phase 5:** COMPLETE — Scorer Agent with LLM-based guideline adherence scoring
+**Phase 6:** COMPLETE — Pipeline Integration with REST API
 
-**What was done in Phase 5:**
-- Scorer Agent: takes ExtractionResult + RetrievalResult, evaluates adherence per diagnosis via LLM
-- Scoring prompt includes full clinical context: diagnosis, treatments, referrals, investigations, procedures, and guideline text
-- Per-diagnosis scoring: +1 (adherent) / -1 (non-adherent) with explanation, guidelines followed/not followed
-- Aggregate score: proportion of adherent diagnoses (errors excluded)
-- Response parsing: case-insensitive regex (fixes Cyprian's case-sensitive bug)
-- Guideline formatting: intelligent truncation to 2,000 chars (configurable), rank-ordered, vs Cyprian's 500 chars
-- Error handling: per-diagnosis error capture, pipeline continues on failure
-- 176 unit tests passing (up from 144 in Phase 4, +32 new: 8 parsing + 8 data classes + 12 agent + 4 formatting)
-- Learning doc: `docs/learning/08-scorer-agent-explained.md`
+**What was done in Phase 6:**
+- Pipeline orchestrator: `src/services/pipeline.py` chains all 4 agents (Extractor → Query → Retriever → Scorer)
+- Loads patient data from DB, runs full pipeline, stores results as AuditResult rows
+- Audit API: 4 REST endpoints for single patient, batch, job status, and result retrieval
+- Batch processing: uses FastAPI BackgroundTasks with its own DB session, commits every 10 patients
+- Error handling: per-patient error capture, early exits (no entries, no diagnoses), continues on failure
+- SNOMED category pre-loading: loads all 1,261 unique concepts once, caches across all patients
+- Results stored with summary counts + full JSON breakdown in details_json column
+- 190 unit tests passing (up from 176 in Phase 5, +14 new pipeline tests)
+- Learning doc: `docs/learning/09-pipeline-integration-explained.md`
 
-**All 4 agents are now built.** The complete pipeline architecture is implemented:
-- Stage 1: Extractor Agent (`src/agents/extractor.py`)
-- Stage 2: Query Agent (`src/agents/query.py`)
-- Stage 3: Retriever Agent (`src/agents/retriever.py`)
-- Stage 4: Scorer Agent (`src/agents/scorer.py`)
+**The system is now end-to-end operational.** From API request to scored audit result:
+```
+POST /api/v1/audit/patient/{pat_id}
+  → Load from DB → Extract → Query → Retrieve → Score → Store → Return
+```
+
+**Key files:**
+- Pipeline: `src/services/pipeline.py`
+- API: `src/api/routes/audit.py`
+- Tests: `tests/unit/test_pipeline.py`
 
 **Blockers:** None.
 
-**Next session should start with:** Phase 6 — Pipeline Integration
-1. Build Pipeline orchestrator that chains all 4 agents together
-2. Implement single-patient audit endpoint
-3. Implement batch audit endpoint (process multiple patients)
-4. Implement job tracking (async batch processing)
-5. Error handling and retry logic
-6. Write integration tests
+**Next session should start with:** Phase 7 — Validation & Reporting
+1. Import gold-standard audit data (120 cases manually scored by clinicians)
+2. Run our pipeline against those 120 patients
+3. Compare AI scores vs human auditor scores
+4. Generate accuracy/agreement metrics (Cohen's kappa, etc.)
+5. Build reporting endpoints (per-patient, aggregate, by-condition)
+6. Write tests
 7. Update learning docs + PROJECT_BIBLE.md
 
 ---
