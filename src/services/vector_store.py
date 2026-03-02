@@ -73,6 +73,7 @@ class VectorStore:
 
         logger.info("Loading guidelines metadata from %s", csv_path)
         self._guidelines = []
+        csv.field_size_limit(10_000_000)  # Some guideline texts exceed default 131KB
         with open(csv_path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
