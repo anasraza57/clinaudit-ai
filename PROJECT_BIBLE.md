@@ -1,7 +1,7 @@
 # PROJECT BIBLE — GuidelineGuard
 
 > **Last Updated:** 2026-03-01
-> **Status:** Phase 4 COMPLETE — Next: Phase 5 (Scorer Agent)
+> **Status:** Phase 5 COMPLETE — Next: Phase 6 (Pipeline Integration)
 
 ---
 
@@ -46,7 +46,7 @@ Patient Record → [Extractor] → [Query Generator] → [Retriever] → [Scorer
 1. **Extractor Agent** — Reads structured patient data (SNOMED-coded clinical entries), categorises each entry as a diagnosis, treatment, procedure, referral, etc.
 2. **Query Agent** — Takes extracted clinical concepts and generates targeted search queries for finding relevant guidelines.
 3. **Retriever Agent** — Uses semantic search (PubMedBERT embeddings + FAISS vector index) to find the most relevant NICE guideline passages for each query.
-4. **Scorer Agent** — Compares documented clinical decisions against retrieved guidelines using an LLM, producing per-diagnosis adherence scores (+1 adherent / -1 non-adherent) and a final aggregate score with explanations.
+4. **Scorer Agent** — Compares documented clinical decisions against retrieved guidelines using an LLM, producing per-diagnosis adherence scores (+1 adherent / -1 non-adherent) with explanations of guidelines followed/not followed, and a final aggregate score (proportion of adherent diagnoses).
 
 ### The Data
 
@@ -182,8 +182,9 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 - No logging
 - No tests (the 5 "test cases" are manual integration tests, not automated)
 - Scoring prompt truncates guidelines to 500 chars — loses critical context
+- Only passes treatments to the scorer prompt — ignores referrals, investigations, and procedures
 - The `expected_score` for test case 2 has a syntax error (missing value)
-- Regex for score parsing is case-sensitive but searches lowercase content — bug
+- Regex for score parsing is case-sensitive but searches lowercase content — critical bug that causes all scores to default to -1
 - JSON-RPC is over-engineered for a single-process pipeline
 
 **What we're taking:**
@@ -197,8 +198,10 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 - GPT-3.5-turbo → GPT-4o-mini or better (via abstraction layer)
 - Flask JSON-RPC → direct function calls within a unified pipeline
 - Global mutable state → proper state management (singleton Embedder + VectorStore with load/unload)
-- Truncated guidelines → intelligent chunking with sufficient context
-- Manual test cases → automated test suite
+- Truncated guidelines (500 chars, 1 guideline) → intelligent formatting with up to 2,000 chars and all top-K guidelines
+- Only treatments in scorer → full clinical context (treatments + referrals + investigations + procedures)
+- Case-sensitive regex bug → case-insensitive parsing with robust edge case handling
+- Manual test cases → automated test suite (32 scorer tests)
 - Naive "guidelines for concept_name" queries → expert-crafted templates + LLM queries from Query Agent
 - No deduplication → merge + dedup results across multiple queries per diagnosis
 - `faiss.normalize_L2` on non-writable tensors → numpy normalization (fixed segfault bug)
@@ -266,6 +269,7 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 | **Pipeline Orchestration** | Custom pipeline (not LangGraph) | LangGraph adds complexity without proportional benefit for a linear 4-step pipeline. Simple, testable functions are better. |
 | **Medical Coding** | Rule-based regex + LLM fallback | Two-tier SNOMED categoriser: regex patterns handle 84% of concepts, LLM classifies the remaining 16%. No FHIR server needed. |
 | **Query Generation** | Templates + LLM + defaults | Three-tier: hand-crafted templates for ~15 common MSK conditions, LLM for rare diagnoses, generic defaults as fallback. Templates optimised for PubMedBERT similarity. |
+| **Guideline Scoring** | LLM with structured prompt | Per-diagnosis scoring via LLM (temperature=0), includes full clinical context + up to 2,000 chars of guideline text. Case-insensitive regex parsing of structured output. |
 | **Configuration** | Pydantic Settings | Type-safe, validates on startup, reads from .env files |
 | **Logging** | Python `logging` + `structlog` | Structured JSON logs, correlation IDs, proper levels |
 | **Containerisation** | Docker + Docker Compose | Reproducible environments, one-command setup |
@@ -343,13 +347,16 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - [x] Update learning docs — `07-retriever-agent-explained.md`
 - [x] Update PROJECT_BIBLE.md
 
-### Phase 5: Scorer Agent
-- [ ] Design scoring prompts and rubric
-- [ ] Build Scorer Agent using LLM abstraction
-- [ ] Implement per-diagnosis scoring with explanations
-- [ ] Implement aggregate score calculation
-- [ ] Write tests
-- [ ] Update learning docs + PROJECT_BIBLE.md
+### Phase 5: Scorer Agent ✅ COMPLETE
+- [x] Design scoring prompt and rubric — structured prompt with diagnosis, treatments, referrals, investigations, procedures, guidelines
+- [x] Build Scorer Agent — `src/agents/scorer.py` using LLM abstraction, temperature=0 for deterministic scoring
+- [x] Implement per-diagnosis scoring — +1 (adherent) / -1 (non-adherent) with explanations, guidelines followed/not followed
+- [x] Implement aggregate score calculation — proportion of adherent diagnoses (errors excluded)
+- [x] Implement response parsing — case-insensitive regex with robust edge case handling
+- [x] Implement guideline formatting — intelligent truncation with rank ordering, configurable max chars
+- [x] Write tests — 176/176 passing (32 new Scorer tests)
+- [x] Update learning docs — `08-scorer-agent-explained.md`
+- [x] Update PROJECT_BIBLE.md
 
 ### Phase 6: Pipeline Integration
 - [ ] Build Pipeline orchestrator (chains all 4 agents)
@@ -432,6 +439,16 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - ✅ Tests — 144/144 passing (13 embedder using bert-tiny for speed + 14 retriever with mocked embedder/store) (2026-03-01)
 - ✅ Learning doc — `docs/learning/07-retriever-agent-explained.md` (2026-03-01)
 
+### Phase 5: Scorer Agent ✅ COMPLETE
+- ✅ Scorer Agent — `src/agents/scorer.py` with structured scoring prompt, per-diagnosis evaluation, aggregate calculation (2026-03-01)
+- ✅ Scoring prompt — includes diagnosis, treatments, referrals, investigations, procedures, and full guideline text (2,000 chars vs Cyprian's 500) (2026-03-01)
+- ✅ Response parsing — case-insensitive regex extracting score, explanation, guidelines followed, guidelines not followed (2026-03-01)
+- ✅ Guideline formatting — intelligent truncation with rank ordering, configurable max chars (2026-03-01)
+- ✅ Error handling — per-diagnosis error capture, errors excluded from aggregate, pipeline continues on failure (2026-03-01)
+- ✅ Data classes — DiagnosisScore (per-diagnosis), ScoringResult (aggregate with summary()) (2026-03-01)
+- ✅ Tests — 176/176 passing (32 new: 8 parsing + 8 data classes + 12 agent + 4 formatting) (2026-03-01)
+- ✅ Learning doc — `docs/learning/08-scorer-agent-explained.md` (2026-03-01)
+
 ---
 
 ## 6. Decisions Log
@@ -493,6 +510,22 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - `faiss.normalize_L2()` — causes segmentation fault when called on numpy arrays derived from PyTorch tensors (non-writable memory). Known compatibility issue between faiss-cpu, torch, and numpy on macOS.
 **Reasoning:** Mathematically identical result. Numpy normalization creates a new array, avoiding the in-place modification that crashes. No performance difference for our use case. **Implemented:** `src/services/embedder.py`.
 
+### Decision 008: Full clinical context in scorer prompt (2026-03-01)
+**Context:** Cyprian's scorer only passed treatments to the LLM. NICE guidelines also recommend referrals (e.g., "refer to physiotherapy"), investigations (e.g., "order blood tests"), and procedures.
+**Choice:** Include treatments, referrals, investigations, and procedures in the scoring prompt.
+**Alternatives rejected:**
+- Treatments only (Cyprian's approach) — misses critical guideline adherence signals. A patient correctly referred to physiotherapy would score as non-adherent.
+**Reasoning:** NICE guidelines cover all aspects of care, not just prescriptions. Including the full clinical context gives the LLM a complete picture and produces more accurate adherence scores. **Implemented:** `src/agents/scorer.py`.
+
+### Decision 009: Conservative default scoring on parse failure (2026-03-01)
+**Context:** If the LLM's response can't be parsed (garbled output, unexpected format), what score should we assign?
+**Choice:** Default to -1 (non-adherent).
+**Alternatives considered:**
+- Default to +1 — too optimistic, could hide real non-adherence.
+- Default to 0 or null — would require a third score type, complicating downstream analysis.
+- Throw an error — too aggressive, would halt processing.
+**Reasoning:** Defaulting to -1 is the conservative, safe choice. It ensures unparseable responses get flagged for human review rather than silently passing. Combined with the `error` field on DiagnosisScore, these cases can be easily identified and investigated.
+
 ---
 
 ## 7. Current State Summary
@@ -503,24 +536,35 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 **Phase 2:** COMPLETE — Extractor Agent with SNOMED categoriser
 **Phase 3:** COMPLETE — Query Agent with template-based + LLM query generation
 **Phase 4:** COMPLETE — Retriever Agent with PubMedBERT embeddings + FAISS search
+**Phase 5:** COMPLETE — Scorer Agent with LLM-based guideline adherence scoring
 
-**What was done in Phase 4:**
-- PubMedBERT Embedder service: loads model, encodes text → 768-dim vectors (mean pooling + L2 normalisation)
-- Retriever Agent: embeds queries via Embedder, searches FAISS via VectorStore, merges/deduplicates results
-- Multi-query aggregation: 3 queries per diagnosis → search FAISS for each → merge results keeping best scores → top-K unique guidelines
-- Fixed faiss.normalize_L2 segfault (torch tensor memory not writable → use numpy normalization instead)
-- 144 unit tests passing (up from 117 in Phase 3, +27 new: 13 embedder + 14 retriever)
-- Learning doc: `docs/learning/07-retriever-agent-explained.md`
+**What was done in Phase 5:**
+- Scorer Agent: takes ExtractionResult + RetrievalResult, evaluates adherence per diagnosis via LLM
+- Scoring prompt includes full clinical context: diagnosis, treatments, referrals, investigations, procedures, and guideline text
+- Per-diagnosis scoring: +1 (adherent) / -1 (non-adherent) with explanation, guidelines followed/not followed
+- Aggregate score: proportion of adherent diagnoses (errors excluded)
+- Response parsing: case-insensitive regex (fixes Cyprian's case-sensitive bug)
+- Guideline formatting: intelligent truncation to 2,000 chars (configurable), rank-ordered, vs Cyprian's 500 chars
+- Error handling: per-diagnosis error capture, pipeline continues on failure
+- 176 unit tests passing (up from 144 in Phase 4, +32 new: 8 parsing + 8 data classes + 12 agent + 4 formatting)
+- Learning doc: `docs/learning/08-scorer-agent-explained.md`
+
+**All 4 agents are now built.** The complete pipeline architecture is implemented:
+- Stage 1: Extractor Agent (`src/agents/extractor.py`)
+- Stage 2: Query Agent (`src/agents/query.py`)
+- Stage 3: Retriever Agent (`src/agents/retriever.py`)
+- Stage 4: Scorer Agent (`src/agents/scorer.py`)
 
 **Blockers:** None.
 
-**Next session should start with:** Phase 5 — Scorer Agent
-1. Design scoring prompts and rubric for guideline adherence evaluation
-2. Build Scorer Agent using LLM abstraction
-3. Implement per-diagnosis scoring with explanations
-4. Implement aggregate score calculation
-5. Write tests
-6. Update learning docs + PROJECT_BIBLE.md
+**Next session should start with:** Phase 6 — Pipeline Integration
+1. Build Pipeline orchestrator that chains all 4 agents together
+2. Implement single-patient audit endpoint
+3. Implement batch audit endpoint (process multiple patients)
+4. Implement job tracking (async batch processing)
+5. Error handling and retry logic
+6. Write integration tests
+7. Update learning docs + PROJECT_BIBLE.md
 
 ---
 
@@ -531,6 +575,8 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - **SNOMED categoriser coverage at 84%:** 192 of 1,261 concepts require LLM fallback. Coverage could be improved by adding more patterns, but diminishing returns — LLM handles the rest.
 - **faiss.normalize_L2 segfault on macOS:** `faiss.normalize_L2()` crashes when called on numpy arrays from PyTorch tensors. Worked around by using numpy normalization instead. May not affect Linux/Docker.
 - **Embedder tests use bert-tiny model:** Real PubMedBERT (~440MB) too large for unit tests. Tests use `prajjwal1/bert-tiny` (17MB, 128-dim) — same encoding logic, different weights. Integration tests with real model needed.
+- **Scorer tests use mock LLM:** Unit tests mock the AI provider. Integration tests with a real LLM needed to validate prompt quality and parsing against actual LLM outputs.
+- **Binary scoring only:** Current scoring is +1/-1 (adherent/non-adherent). No partial adherence score. The paper uses the same binary scheme, but nuanced scoring could improve accuracy.
 
 ---
 
