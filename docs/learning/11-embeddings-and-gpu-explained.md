@@ -169,7 +169,7 @@ This is why:
 
 Index building is a **one-time cost**. You run the script once, it saves `guidelines.index`, and you never run it again (unless guidelines change).
 
-At runtime, the Retriever Agent only encodes **search queries** (short texts, 1 at a time), not all 1,656 guidelines. Encoding a single short query takes ~50ms on CPU — fast enough for an API response.
+At runtime, the Retriever Agent only encodes **search queries** (short texts, batch-encoded per diagnosis — typically 3 at a time), not all 1,656 guidelines. Encoding a batch of 3 short queries takes ~100ms on CPU — fast enough for an API response. Batch encoding is more efficient than individual calls because the model weights are loaded into the CPU cache once per batch.
 
 ---
 
@@ -278,7 +278,7 @@ FAISS search is ~1000x faster because it's just arithmetic on pre-computed vecto
 
 3. **GPU would be ~100x faster** but isn't worth setting up for a one-time operation.
 
-4. **At runtime, only queries are encoded** (1 short text at a time), which takes ~50ms — perfectly fine for API responses.
+4. **At runtime, only queries are encoded** (batch-encoded per diagnosis, typically 3 at a time), which takes ~100ms per batch — perfectly fine for API responses.
 
 5. **The 440 MB model size comes directly from the 110M parameters** — each stored as a 4-byte float.
 

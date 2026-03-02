@@ -389,6 +389,9 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - ✅ `_recover_stale_jobs()` on startup — marks stuck jobs as "failed" when server restarts (2026-03-02)
 - ✅ `gc.collect()` every 10 patients + after batch completion — forces garbage collection (2026-03-02)
 - ✅ Pre-loaded PubMedBERT at startup — prevents crash from lazy loading during HTTP requests (2026-03-02)
+- ✅ Embedder tensor cleanup — `.detach()` before `.numpy()`, explicit `del outputs, inputs` after encoding, `np.ascontiguousarray()` output for FAISS compatibility (2026-03-02)
+- ✅ Retriever batch encoding — switched from individual `encode()` per query to `encode_batch()` per diagnosis. 6 forward passes instead of 18 for a 6-diagnosis patient (2026-03-02)
+- ✅ FAISS contiguous array enforcement — `np.ascontiguousarray()` in vector store search to prevent memory alignment crashes (2026-03-02)
 - ✅ Added `scripts/build_index.py` — rebuilds FAISS index from guidelines.csv (2026-03-02)
 - ✅ Improved Swagger docs — response_model, summary, Field descriptions on all endpoints (2026-03-02)
 - ✅ Added `GET /api/v1/data/stats`, `?limit=N` for batch, `GET /audit/jobs/{job_id}/results` pagination (2026-03-02)
@@ -404,7 +407,7 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - [ ] Update learning docs + PROJECT_BIBLE.md
 
 ### Phase 8: Polish & Documentation
-- [ ] Performance optimisation (batch embeddings, caching, concurrent API calls)
+- [ ] Performance optimisation (concurrent API calls, further caching — batch embeddings already done in retriever)
 - [ ] Complete all learning documentation
 - [ ] Complete README with full setup/run/test/deploy instructions
 - [ ] Security review
@@ -731,6 +734,9 @@ Reports (read path):
 - `src/ai/openai_provider.py` — client timeout (60s) + max_retries (2)
 - `src/config/settings.py` — `openai_request_timeout`, `pipeline_patient_timeout`
 - `src/main.py` — `_recover_stale_jobs()`, PubMedBERT pre-loading
+- `src/services/embedder.py` — `.detach()` tensor cleanup, `np.ascontiguousarray()` output
+- `src/agents/retriever.py` — `encode_batch()` per diagnosis instead of individual `encode()` per query
+- `src/services/vector_store.py` — `np.ascontiguousarray()` before FAISS search
 
 **Blockers:** None.
 
@@ -751,6 +757,7 @@ Reports (read path):
 - **torch version pinned to 2.2.2:** Python 3.11 doesn't support torch 2.5.1. Will need updating if Python is upgraded.
 - **SNOMED categoriser coverage at 84%:** 192 of 1,261 concepts require LLM fallback (now batched, 7 calls total). Coverage could be improved by adding more patterns, but diminishing returns — LLM handles the rest. Categories are persisted to DB after first classification.
 - **faiss.normalize_L2 segfault on macOS:** `faiss.normalize_L2()` crashes when called on numpy arrays from PyTorch tensors. Worked around by using numpy normalization instead. May not affect Linux/Docker.
+- **PyTorch tensor → numpy memory lifecycle:** Calling `.numpy()` on a tensor without `.detach()` can cause segfaults when the tensor is garbage-collected while numpy still references it. Fixed by adding `.detach()` before `.numpy()`, explicitly `del`eting intermediate tensors, and returning `np.ascontiguousarray()` from the embedder. FAISS search also uses `np.ascontiguousarray()` to guarantee memory alignment.
 - **PubMedBERT requires ~2GB RAM:** The embedding model (~440MB on disk) needs significant memory. Loaded at startup via lifespan handler so it's ready before any HTTP request arrives.
 - **Embedder tests use bert-tiny model:** Real PubMedBERT (~440MB) too large for unit tests. Tests use `prajjwal1/bert-tiny` (17MB, 128-dim) — same encoding logic, different weights. Integration tests with real model needed.
 - **Scorer tests use mock LLM:** Unit tests mock the AI provider. Integration tests with a real LLM needed to validate prompt quality and parsing against actual LLM outputs.

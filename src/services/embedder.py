@@ -97,16 +97,25 @@ class Embedder:
 
         with torch.no_grad():
             outputs = self._model(**inputs)
+            # Detach from computation graph before converting to numpy
+            embedding = (
+                outputs.last_hidden_state
+                .mean(dim=1)
+                .squeeze()
+                .detach()
+                .numpy()
+                .astype("float32")
+            )
 
-        # Mean pooling: average all token embeddings
-        embedding = outputs.last_hidden_state.mean(dim=1).squeeze().numpy().astype("float32")
+        # Free tensors immediately — don't let them accumulate across calls
+        del outputs, inputs
 
         # L2 normalise so FAISS inner product = cosine similarity
         norm = np.linalg.norm(embedding)
         if norm > 0:
             embedding = embedding / norm
 
-        return embedding
+        return np.ascontiguousarray(embedding)
 
     def encode_batch(self, texts: list[str]) -> np.ndarray:
         """
@@ -136,21 +145,24 @@ class Embedder:
         with torch.no_grad():
             outputs = self._model(**inputs)
 
-        # Mean pooling for each text in the batch
-        # outputs.last_hidden_state shape: (batch_size, seq_len, hidden_dim)
-        # attention_mask expands to match hidden_dim for proper masking
-        attention_mask = inputs["attention_mask"].unsqueeze(-1).float()
-        sum_embeddings = (outputs.last_hidden_state * attention_mask).sum(dim=1)
-        count = attention_mask.sum(dim=1)
+            # Mean pooling for each text in the batch
+            # outputs.last_hidden_state shape: (batch_size, seq_len, hidden_dim)
+            # attention_mask expands to match hidden_dim for proper masking
+            attention_mask = inputs["attention_mask"].unsqueeze(-1).float()
+            sum_embeddings = (outputs.last_hidden_state * attention_mask).sum(dim=1)
+            count = attention_mask.sum(dim=1)
 
-        embeddings = (sum_embeddings / count).numpy().astype("float32")
+            embeddings = (sum_embeddings / count).detach().numpy().astype("float32")
+
+        # Free tensors immediately
+        del outputs, inputs, attention_mask, sum_embeddings, count
 
         # L2 normalise each row
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
         norms = np.where(norms > 0, norms, 1.0)  # Avoid division by zero
         embeddings = embeddings / norms
 
-        return embeddings
+        return np.ascontiguousarray(embeddings)
 
     def unload(self) -> None:
         """Release model and tokeniser from memory."""

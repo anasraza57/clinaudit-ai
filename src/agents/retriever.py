@@ -156,13 +156,13 @@ class RetrieverAgent:
         # Collect all results across queries, keyed by guideline_id
         seen: dict[str, GuidelineMatch] = {}
 
-        for query_text in dq.queries:
-            # Encode the query
-            query_embedding = self._embedder.encode(query_text)
+        # Batch-encode all queries in a single forward pass (instead of N individual calls)
+        query_embeddings = self._embedder.encode_batch(dq.queries)
 
-            # Search FAISS
+        for i, query_text in enumerate(dq.queries):
+            # Search FAISS with pre-computed embedding
             raw_results = self._vector_store.search(
-                query_embedding,
+                query_embeddings[i],
                 top_k=self._top_k,
             )
 

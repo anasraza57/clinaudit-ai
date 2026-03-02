@@ -112,8 +112,8 @@ class VectorStore:
         settings = get_settings()
         k = top_k or settings.retriever_top_k
 
-        # FAISS expects a 2-D array of shape (n_queries, dimension)
-        query = np.array(query_embedding, dtype=np.float32)
+        # FAISS expects a contiguous 2-D float32 array of shape (n_queries, dimension)
+        query = np.ascontiguousarray(query_embedding, dtype=np.float32)
         if query.ndim == 1:
             query = query.reshape(1, -1)
 

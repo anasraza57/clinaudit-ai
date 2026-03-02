@@ -60,23 +60,27 @@ Returns top-5:         [
 
 The Embedder and VectorStore are low-level services. The Retriever Agent (`src/agents/retriever.py`) adds the **intelligence layer** on top:
 
-### 1. Multi-Query Aggregation
+### 1. Batch Encoding
 
-Each diagnosis has 1-3 queries from the Query Agent. The Retriever searches FAISS for each query separately, then **merges the results**. This means if Query 1 and Query 3 both find the same guideline, we keep it once (with the better score).
+Each diagnosis has 1-3 queries. Instead of encoding them one at a time (separate forward passes through PubMedBERT), the Retriever uses `encode_batch()` to encode all queries for a diagnosis in a **single forward pass**. This is faster and uses less memory — the model weights are loaded into the CPU cache once instead of per-query.
 
-### 2. Deduplication
+### 2. Multi-Query Aggregation
+
+After batch encoding, the Retriever searches FAISS for each query embedding separately, then **merges the results**. This means if Query 1 and Query 3 both find the same guideline, we keep it once (with the better score).
+
+### 3. Deduplication
 
 Without deduplication, we might send the Scorer Agent 3 copies of the same guideline (found by 3 different queries). The Retriever keeps only unique guidelines, tracked by their `id` field.
 
-### 3. Best-Score Selection
+### 4. Best-Score Selection
 
 When the same guideline is found by multiple queries, we keep the one with the **best similarity score** (lowest L2 distance). This ensures the Scorer gets the most confident matches.
 
-### 4. Top-K Limiting
+### 5. Top-K Limiting
 
 After merging and deduplicating across all queries for a diagnosis, we keep only the top-K results (default: 5, configurable via `RETRIEVER_TOP_K`). This prevents information overload for the Scorer.
 
-### 5. Structured Output
+### 6. Structured Output
 
 The Retriever produces a `RetrievalResult` with `DiagnosisGuidelines` for each diagnosis, containing `GuidelineMatch` objects with title, text, URL, score, rank, and which query found it.
 
@@ -86,13 +90,14 @@ The Retriever produces a `RetrievalResult` with `DiagnosisGuidelines` for each d
 QueryResult (from Query Agent)
 │
 ├── Diagnosis: "Low back pain" (3 queries)
-│   ├── Query 1 → embed → FAISS search → 5 results
-│   ├── Query 2 → embed → FAISS search → 5 results
-│   └── Query 3 → embed → FAISS search → 5 results
+│   ├── Batch encode all 3 queries → 3 embeddings (single forward pass)
+│   ├── Embedding 1 → FAISS search → 5 results
+│   ├── Embedding 2 → FAISS search → 5 results
+│   └── Embedding 3 → FAISS search → 5 results
 │   └── Merge + dedup + top-5 → 5 unique guidelines
 │
 ├── Diagnosis: "Osteoarthritis of knee" (3 queries)
-│   ├── Query 1 → embed → FAISS search → 5 results
+│   ├── Batch encode all 3 queries → 3 embeddings (single forward pass)
 │   ├── ...
 │   └── Merge + dedup + top-5 → 5 unique guidelines
 │
@@ -177,11 +182,15 @@ def retriever_node(state):
 | **Testing** | None | 27 unit tests (13 embedder + 14 retriever) |
 | **Portability** | Google Colab notebook | Standard Python modules, works anywhere |
 
-## The faiss.normalize_L2 Bug
+## Memory Safety: PyTorch Tensors and FAISS
 
-During development, we hit a segmentation fault when calling `faiss.normalize_L2()` on numpy arrays that came from PyTorch tensor operations. The arrays were not properly writable/contiguous in memory, and FAISS's C++ code crashed trying to modify them.
+We encountered two related segfault issues during development, both caused by the interaction between PyTorch tensors, numpy arrays, and FAISS's C++ code.
 
-**Fix:** We replaced `faiss.normalize_L2(embedding)` with pure numpy normalization:
+### Bug 1: faiss.normalize_L2 segfault
+
+`faiss.normalize_L2()` crashed when called on numpy arrays from PyTorch tensor operations — the arrays were not writable/contiguous in memory.
+
+**Fix:** Replaced with pure numpy normalization:
 
 ```python
 # Before (crashes):
@@ -193,7 +202,27 @@ if norm > 0:
     embedding = embedding / norm
 ```
 
-The result is mathematically identical — both produce a unit-length vector. But the numpy version creates a new array rather than modifying in-place, avoiding the memory issue.
+### Bug 2: Tensor memory lifecycle crashes
+
+Calling `.numpy()` on a PyTorch tensor without `.detach()` leaves the numpy array sharing memory with the tensor's computation graph. When the tensor is garbage-collected, the numpy array points to freed memory — causing segfaults in FAISS or later code.
+
+**Fix:** Three changes in the embedder:
+
+```python
+# 1. Detach before numpy conversion
+embedding = outputs.last_hidden_state.mean(dim=1).squeeze().detach().numpy()
+
+# 2. Explicitly free tensors after use
+del outputs, inputs
+
+# 3. Return contiguous arrays for FAISS compatibility
+return np.ascontiguousarray(embedding)
+```
+
+The vector store also enforces contiguous arrays before FAISS search:
+```python
+query = np.ascontiguousarray(query_embedding, dtype=np.float32)
+```
 
 ## Configuration
 
