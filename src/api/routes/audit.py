@@ -265,14 +265,15 @@ async def _run_batch_background(job_id: int, pat_ids: list[str]) -> None:
 
     async with factory() as session:
         try:
-            # Update job status
+            # Update job status — commit immediately so polling sees "running"
             result = await session.execute(
                 select(AuditJob).where(AuditJob.id == job_id)
             )
             job = result.scalar_one()
             job.status = "running"
             job.started_at = datetime.now(timezone.utc)
-            await session.flush()
+            await session.commit()
+            logger.info("Batch job %d started (%d patients)", job_id, len(pat_ids))
 
             pipeline = _get_pipeline()
 
@@ -298,8 +299,10 @@ async def _run_batch_background(job_id: int, pat_ids: list[str]) -> None:
 
                 job.processed_patients = i
 
+                # Commit progress every patient so polling sees updates
+                await session.commit()
+
                 if i % 10 == 0:
-                    await session.commit()
                     logger.info(
                         "Batch job %d: %d/%d patients (%d failed)",
                         job_id, i, len(pat_ids), job.failed_patients,
@@ -318,12 +321,18 @@ async def _run_batch_background(job_id: int, pat_ids: list[str]) -> None:
         except Exception as e:
             logger.error("Batch job %d crashed: %s", job_id, e)
             try:
+                # Re-fetch job in case session state is stale after error
+                result = await session.execute(
+                    select(AuditJob).where(AuditJob.id == job_id)
+                )
+                job = result.scalar_one()
                 job.status = "failed"
-                job.error_message = str(e)
+                job.error_message = str(e)[:500]
                 job.completed_at = datetime.now(timezone.utc)
                 await session.commit()
-            except Exception:
-                pass
+            except Exception as inner_e:
+                logger.error("Batch job %d: failed to save error state: %s",
+                             job_id, inner_e)
 
 
 @router.get(
