@@ -157,7 +157,15 @@ class RetrieverAgent:
         seen: dict[str, GuidelineMatch] = {}
 
         # Batch-encode all queries in a single forward pass (instead of N individual calls)
+        logger.info(
+            "Encoding %d queries for %r via PubMedBERT...",
+            len(dq.queries), dq.diagnosis_term,
+        )
         query_embeddings = self._embedder.encode_batch(dq.queries)
+        logger.info(
+            "Encoding complete for %r — shape %s, searching FAISS...",
+            dq.diagnosis_term, query_embeddings.shape,
+        )
 
         for i, query_text in enumerate(dq.queries):
             # Search FAISS with pre-computed embedding

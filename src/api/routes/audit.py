@@ -161,9 +161,11 @@ async def audit_single_patient(
 
     pipeline = _get_pipeline()
 
-    # Ensure embedder is loaded
+    # Ensure embedder and vector store are loaded
     if not pipeline._retriever._embedder.is_loaded:
         pipeline._retriever._embedder.load()
+    if not pipeline._retriever._vector_store.is_loaded:
+        pipeline._retriever._vector_store.load()
 
     # Load SNOMED categories if needed
     if not pipeline.categories_loaded:
@@ -291,6 +293,8 @@ async def _run_batch_background(job_id: int, pat_ids: list[str]) -> None:
 
     if not pipeline._retriever._embedder.is_loaded:
         pipeline._retriever._embedder.load()
+    if not pipeline._retriever._vector_store.is_loaded:
+        pipeline._retriever._vector_store.load()
 
     # Pre-load categories in a short-lived session
     async with factory() as session:

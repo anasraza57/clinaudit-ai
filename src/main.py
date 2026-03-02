@@ -5,8 +5,23 @@ Creates and configures the FastAPI application with all routes,
 middleware, and startup/shutdown hooks.
 """
 
+import faulthandler
 import logging
+import os
 from contextlib import asynccontextmanager
+
+# Print a Python traceback on segfault instead of silently dying
+faulthandler.enable()
+
+# Disable HuggingFace tokenizers Rust-based parallelism — it creates
+# internal threads that segfault when combined with uvicorn's async
+# event loop and Python thread pools on macOS.
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+# Limit PyTorch/OpenMP to 1 thread to prevent threading conflicts
+# with the async event loop. CPU inference is fast enough single-threaded
+# for our small batch sizes (3 queries at a time).
+os.environ["OMP_NUM_THREADS"] = "1"
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

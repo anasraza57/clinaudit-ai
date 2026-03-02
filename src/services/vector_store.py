@@ -7,7 +7,9 @@ clinical guidelines for a given query embedding.
 """
 
 import csv
+import gzip
 import logging
+import shutil
 from pathlib import Path
 
 import faiss
@@ -61,7 +63,14 @@ class VectorStore:
         if not idx_path.exists():
             raise FileNotFoundError(f"FAISS index not found: {idx_path}")
         if not csv_path.exists():
-            raise FileNotFoundError(f"Guidelines CSV not found: {csv_path}")
+            # Auto-decompress .gz if the uncompressed file is missing
+            gz_path = Path(str(csv_path) + ".gz")
+            if gz_path.exists():
+                logger.info("Decompressing %s → %s", gz_path, csv_path)
+                with gzip.open(gz_path, "rb") as f_in, open(csv_path, "wb") as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+            else:
+                raise FileNotFoundError(f"Guidelines CSV not found: {csv_path}")
 
         logger.info("Loading FAISS index from %s", idx_path)
         self._index = faiss.read_index(str(idx_path))
