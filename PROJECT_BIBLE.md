@@ -1,7 +1,7 @@
 # PROJECT BIBLE — GuidelineGuard
 
-> **Last Updated:** 2026-03-02
-> **Status:** Phase 7a COMPLETE (Reporting Endpoints) + Post-7a Crash Fixes — Next: Phase 7b (Gold-Standard Validation)
+> **Last Updated:** 2026-03-03
+> **Status:** Phase 7a COMPLETE (Reporting Endpoints + Export) + Post-7a Crash Fixes — Next: Phase 7b (Gold-Standard Validation)
 
 ---
 
@@ -269,7 +269,7 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 | **Pipeline Orchestration** | Custom pipeline (not LangGraph) | LangGraph adds complexity without proportional benefit for a linear 4-step pipeline. Simple, testable functions are better. |
 | **Medical Coding** | Rule-based regex + LLM fallback | Two-tier SNOMED categoriser: regex patterns handle 84% of concepts, LLM classifies the remaining 16% in batches of 50. Categories persisted to DB — classified once, never repeated. No FHIR server needed. |
 | **Query Generation** | Templates + LLM + defaults | Three-tier: hand-crafted templates for ~15 common MSK conditions, LLM for rare diagnoses, generic defaults as fallback. Templates optimised for PubMedBERT similarity. |
-| **Guideline Scoring** | LLM with structured prompt | Per-diagnosis scoring via LLM (temperature=0), includes full clinical context + up to 2,000 chars of guideline text. Case-insensitive regex parsing of structured output. |
+| **Guideline Scoring** | LLM with structured prompt | Binary per-diagnosis scoring (+1 adherent / -1 non-adherent) via LLM (temperature=0). +1 if ANY relevant action taken (referral, treatment, investigation); -1 only if zero actions or actions contradict guidelines. Benefit-of-the-doubt for sparse coded data. Aggregate = adherent / (adherent + non-adherent), errors excluded. Full details in `docs/learning/08-scorer-agent-explained.md`. |
 | **Configuration** | Pydantic Settings | Type-safe, validates on startup, reads from .env files |
 | **Logging** | Python `logging` + `structlog` | Structured JSON logs, correlation IDs, proper levels |
 | **Containerisation** | Docker + Docker Compose | Reproducible environments, one-command setup |
@@ -401,7 +401,11 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - ✅ Improved Swagger docs — response_model, summary, Field descriptions on all endpoints (2026-03-02)
 - ✅ Added `GET /api/v1/data/stats`, `?limit=N` for batch, `GET /audit/jobs/{job_id}/results` pagination (2026-03-02)
 - ✅ Learning docs updated: `05-extractor-agent-explained.md`, `09-pipeline-integration-explained.md` (2026-03-02)
-- ✅ Diagnosis deduplication across pipeline — Query Agent caches queries by diagnosis term (1 LLM call per unique term instead of per occurrence), Retriever caches embeddings+FAISS results by term, Scorer caches scores by (term, index_date). Eliminates redundant LLM/encoding work for duplicate diagnoses across episodes. 219 tests passing (+3 new dedup tests) (2026-03-02)
+- ✅ Diagnosis deduplication across pipeline — two layers: (1) **entry-level dedup** skips duplicate (term, index_date) pairs so each diagnosis appears exactly once per episode in pipeline output, eliminating duplicate entries in reports; (2) **term-level caching** reuses queries/embeddings/FAISS results across episodes for the same diagnosis term, avoiding redundant LLM/encoding work. All three agents (Query, Retriever, Scorer) implement both layers. 221 tests passing (+5 dedup tests) (2026-03-02)
+
+- ✅ Fixed scoring prompt for sparse SNOMED data — prompt was too strict for coded records where many GP actions (verbal advice, prescriptions from separate systems) aren't captured. Referrals to physio/specialist now correctly score +1. Added context about coded data limitations. (2026-03-03)
+- ✅ Fixed score regex parser for bracket format — LLM outputs `Score: [+1]` copying the bracket format from the prompt template. Regex `Score:\s*([+-]?1)` failed to match `[+1]`, defaulting ALL scores to -1. Fixed regex to `Score:\s*\[?([+-]?1)\]?` and removed brackets from prompt template. Added example output to prompt. 222 tests passing (+1 bracket parsing test). (2026-03-03)
+- ✅ Batch re-audit verified — 10 patients: mean adherence 0.45, range 0.0–1.0. Patients with referrals score +1, patients with no actions score -1. (2026-03-03)
 
 ### Phase 7b: Gold-Standard Validation
 - [ ] Import gold-standard audit data (120 cases)
@@ -511,6 +515,10 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - ✅ Added `aiosqlite==0.20.0` to requirements.txt for async SQLite testing (2026-03-02)
 - ✅ Tests — 216/216 passing (26 new: 4 _load_completed_results + 6 dashboard + 5 condition breakdown + 6 non-adherent + 5 score distribution) (2026-03-02)
 - ✅ Learning doc — `docs/learning/10-reporting-explained.md` (2026-03-02)
+- ✅ Export service — `src/services/export.py` with CSV and HTML report generation (2026-03-03)
+- ✅ `GET /api/v1/reports/export/csv` — downloadable CSV file (one row per diagnosis per patient) (2026-03-03)
+- ✅ `GET /api/v1/reports/export/html` — self-contained HTML report with dashboard stats, condition breakdown, per-patient detail cards (2026-03-03)
+- ✅ Tests — 234/234 passing (+12 new export tests: 5 CSV + 7 HTML) (2026-03-03)
 
 ---
 
@@ -693,9 +701,9 @@ Data:
 
 Audit (write path):
   POST /api/v1/audit/patient/{pat_id}         — Single patient audit
-  POST /api/v1/audit/batch                    — Batch audit (background, supports ?limit=N)
+  POST /api/v1/audit/batch                    — Batch audit (background, supports ?limit=N&skip_audited=true)
   GET  /api/v1/audit/jobs/{job_id}            — Job progress
-  GET  /api/v1/audit/jobs/{job_id}/results    — Paginated job results
+  GET  /api/v1/audit/jobs/{job_id}/results    — Paginated job results (supports ?status=failed)
   GET  /api/v1/audit/results/{pat_id}         — All results for a patient
 
 Reports (read path):
@@ -703,12 +711,17 @@ Reports (read path):
   GET  /api/v1/reports/conditions             — Per-condition breakdown
   GET  /api/v1/reports/non-adherent           — Non-adherent cases
   GET  /api/v1/reports/score-distribution     — Score histogram
+
+Exports (shareable):
+  GET  /api/v1/reports/export/csv             — Download CSV file (one row per diagnosis)
+  GET  /api/v1/reports/export/html            — Self-contained HTML report (open in browser)
 ```
 
 **Key files:**
 - Reporting service: `src/services/reporting.py`
-- Report API: `src/api/routes/reports.py`
-- Tests: `tests/unit/test_reporting.py`
+- Export service: `src/services/export.py`
+- Report API: `src/api/routes/reports.py` (includes export endpoints)
+- Tests: `tests/unit/test_reporting.py`, `tests/unit/test_export.py`
 
 **Post-Phase 7a crash fixes (2026-03-02):**
 
@@ -731,7 +744,8 @@ Reports (read path):
 - Improved Swagger API docs — added `response_model`, `summary`, `Field(description=...)` to all endpoints.
 - Added `GET /api/v1/data/stats` — database row counts.
 - Added `?limit=N` to batch endpoint — `POST /api/v1/audit/batch?limit=50`.
-- Added `GET /api/v1/audit/jobs/{job_id}/results` with pagination.
+- Added `GET /api/v1/audit/jobs/{job_id}/results` with pagination and `?status=` filter.
+- Added `?skip_audited=true` to batch endpoint — skips patients that already have a completed audit result (enables incremental batching).
 
 **Key files changed:**
 - `src/api/routes/audit.py` — per-patient sessions, timeouts, `_save_patient_error_and_progress`, gc.collect
@@ -745,9 +759,12 @@ Reports (read path):
 - `src/services/vector_store.py` — `np.ascontiguousarray()` before FAISS search, auto-decompress `.csv.gz`
 - `src/services/snomed_categoriser.py` — removed 'other' from categories, updated LLM prompts, added 10 new rule patterns
 - `src/agents/extractor.py` — fallback default changed from 'other' to 'administrative'
-- `src/agents/query.py` — per-patient query cache by diagnosis term (avoids duplicate LLM calls)
-- `src/agents/retriever.py` — per-patient retrieval cache by diagnosis term (avoids duplicate encoding + FAISS)
-- `src/agents/scorer.py` — per-patient score cache by (diagnosis_term, index_date) (avoids duplicate scorer LLM calls)
+- `src/agents/query.py` — entry-level dedup by (term, index_date) + term-level query cache across episodes
+- `src/agents/retriever.py` — entry-level dedup by (term, index_date) + term-level retrieval cache across episodes
+- `src/agents/scorer.py` — entry-level dedup by (term, index_date), eliminates duplicate entries in reports; scoring prompt rewritten for sparse coded data; regex parser fixed for bracket format `[+1]`
+- `tests/unit/test_scorer.py` — added `test_parse_score_with_square_brackets`
+- `src/services/export.py` — CSV and HTML report generation service
+- `tests/unit/test_export.py` — 12 tests for CSV and HTML export (234 tests total)
 
 **Blockers:** None.
 
@@ -774,6 +791,7 @@ Reports (read path):
 - **Embedder tests use bert-tiny model:** Real PubMedBERT (~440MB) too large for unit tests. Tests use `prajjwal1/bert-tiny` (17MB, 128-dim) — same encoding logic, different weights. Integration tests with real model needed.
 - **Scorer tests use mock LLM:** Unit tests mock the AI provider. Integration tests with a real LLM needed to validate prompt quality and parsing against actual LLM outputs.
 - **Binary scoring only:** Current scoring is +1/-1 (adherent/non-adherent). No partial adherence score. The paper uses the same binary scheme, but nuanced scoring could improve accuracy.
+- **Sparse coded data bias:** Most patients have only diagnoses + referrals in coded SNOMED data, no explicit treatments. Scoring prompt is tuned to give benefit of the doubt (referral alone = +1), but this may over-count adherence for patients where a referral was made for an unrelated condition. Gold-standard validation (Phase 7b) will quantify this.
 
 ---
 

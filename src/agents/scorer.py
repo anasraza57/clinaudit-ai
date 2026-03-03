@@ -35,7 +35,7 @@ SCORING_PROMPT = """You are a clinical audit expert evaluating whether a GP's ma
 **Diagnosis:** {diagnosis}
 **Index Date:** {index_date}
 
-**Documented Actions:**
+**Documented Actions (from coded SNOMED records):**
 - Treatments: {treatments}
 - Referrals: {referrals}
 - Investigations: {investigations}
@@ -50,27 +50,41 @@ SCORING_PROMPT = """You are a clinical audit expert evaluating whether a GP's ma
 Evaluate whether the documented clinical actions follow the NICE guidelines for this diagnosis.
 
 Consider:
-1. Were appropriate treatments prescribed or offered?
-2. Were necessary referrals made (e.g., physiotherapy, specialist)?
-3. Were appropriate investigations ordered if indicated?
-4. Is there anything the guidelines recommend that was clearly not done?
+1. Were any appropriate management actions taken (treatments, referrals, or investigations)?
+2. If a referral was made (e.g., to physiotherapy, a specialist, or further care), does that align with guideline recommendations?
+3. Is there evidence of at least SOME appropriate clinical response to the diagnosis?
 
-## Important Rules
+## Important Rules — READ CAREFULLY
 
-- If treatments and referrals broadly align with guideline recommendations, score +1
-- If treatments clearly contradict guidelines or critical recommended actions are missing, score -1
-- If the diagnosis is documented but NO treatments, referrals, or investigations are recorded, score -1
-- Give the benefit of the doubt — GPs may have good clinical reasons for deviating from guidelines
+**About the data:** These are SNOMED-coded clinical records, NOT free-text notes. Many GP actions are NOT captured in coded data — verbal advice, over-the-counter recommendations, prescriptions from separate systems, and clinical reasoning are typically absent. The absence of coded treatments does NOT mean no treatment was given.
+
+**Scoring guidance:**
+- Score +1 (ADHERENT) if ANY of the following are true:
+  - A relevant referral was made (e.g., physiotherapy, specialist, further care) — referrals ARE a form of management
+  - Appropriate treatments were prescribed
+  - Relevant investigations were ordered
+  - The documented actions show reasonable clinical engagement with the diagnosis
+- Score -1 (NON-ADHERENT) only if:
+  - The diagnosis is documented but there are NO treatments, NO referrals, AND NO investigations at all
+  - The documented actions clearly CONTRADICT the guidelines (e.g., a treatment the guidelines specifically advise against)
+- **Give the benefit of the doubt** — GPs may have good clinical reasons for their approach, and many appropriate actions are not captured in coded records
+- A physiotherapy or specialist referral alone is sufficient for +1 — this IS first-line management for most MSK conditions per NICE guidelines
 - Base your evaluation ONLY on the provided guidelines, not general medical knowledge
 
 ## Output Format
 
 You MUST respond in EXACTLY this format:
 
-Score: [+1 or -1]
-Explanation: [2-3 sentence explanation of your reasoning]
-Guidelines Followed: [comma-separated list of guideline recommendations that were followed, or "None"]
-Guidelines Not Followed: [comma-separated list of guideline recommendations that were NOT followed, or "None"]"""
+Score: +1 or -1
+Explanation: 2-3 sentence explanation of your reasoning
+Guidelines Followed: comma-separated list of guideline recommendations that were followed, or "None"
+Guidelines Not Followed: comma-separated list of guideline recommendations that were NOT followed, or "None"
+
+Example:
+Score: +1
+Explanation: The GP referred the patient to physiotherapy which is recommended by NICE guidelines for this condition.
+Guidelines Followed: Physiotherapy referral, exercise advice
+Guidelines Not Followed: None"""
 
 
 # ── Data classes ─────────────────────────────────────────────────────
@@ -139,7 +153,7 @@ class ScoringResult:
 
 # ── Response parsing ─────────────────────────────────────────────────
 
-_SCORE_PATTERN = re.compile(r"Score:\s*([+-]?1)", re.IGNORECASE)
+_SCORE_PATTERN = re.compile(r"Score:\s*\[?([+-]?1)\]?", re.IGNORECASE)
 _EXPLANATION_PATTERN = re.compile(
     r"Explanation:\s*(.+?)(?=\nGuidelines Followed:|\Z)",
     re.IGNORECASE | re.DOTALL,
@@ -247,30 +261,29 @@ class ScorerAgent:
         non_adherent = 0
         errors = 0
 
-        # Cache scores by (diagnosis_term, index_date) — same diagnosis in the
-        # same episode has identical context (treatments, referrals), so the
-        # score will be the same.  Different episodes are still scored separately.
-        score_cache: dict[tuple[str, str], DiagnosisScore] = {}
+        # Track unique (term, index_date) to avoid duplicate score entries.
+        # Upstream agents should already deduplicate, but this is a safety net.
+        seen_pairs: set[tuple[str, str]] = set()
 
         for dg in retrieval.diagnosis_guidelines:
             cache_key = (dg.diagnosis_term, dg.index_date)
 
-            if cache_key in score_cache:
+            if cache_key in seen_pairs:
                 logger.debug(
-                    "Reusing cached score for %r (index_date=%s)",
+                    "Skipping duplicate score entry for %r (index_date=%s)",
                     dg.diagnosis_term, dg.index_date,
                 )
-                ds = score_cache[cache_key]
-            else:
-                episode = episode_map.get(dg.index_date)
-                ds = await self._score_diagnosis(
-                    diagnosis_term=dg.diagnosis_term,
-                    concept_id=dg.concept_id,
-                    index_date=dg.index_date,
-                    episode=episode,
-                    guidelines=dg,
-                )
-                score_cache[cache_key] = ds
+                continue
+            seen_pairs.add(cache_key)
+
+            episode = episode_map.get(dg.index_date)
+            ds = await self._score_diagnosis(
+                diagnosis_term=dg.diagnosis_term,
+                concept_id=dg.concept_id,
+                index_date=dg.index_date,
+                episode=episode,
+                guidelines=dg,
+            )
 
             all_scores.append(ds)
 

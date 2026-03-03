@@ -124,23 +124,29 @@ API Response
 
 ### Diagnosis Deduplication
 
-A single patient may have the same diagnosis appearing multiple times — e.g., "Finger pain" recorded 4 times across 2 episodes. Without dedup, this triggers 4 identical LLM query calls, 4 identical PubMedBERT encodings, 4 identical FAISS searches, and 4 identical scorer LLM calls.
+A single patient may have the same diagnosis appearing multiple times — e.g., "Finger pain" recorded 4 times across 2 episodes. Without dedup, this triggers 4 identical LLM query calls, 4 identical PubMedBERT encodings, 4 identical FAISS searches, and 4 identical scorer LLM calls. Worse, duplicate entries flow all the way to the reports, showing the same diagnosis twice in the non-adherent list.
 
-Each pipeline stage caches results to avoid redundant work:
+Dedup operates at **two layers** in each pipeline stage:
 
-| Stage | Cache Key | What's Saved |
+**Layer 1 — Entry-level dedup** (eliminates duplicate output entries):
+Each stage tracks `seen_pairs: set[tuple[str, str]]` keyed by `(diagnosis_term, index_date)`. If the same diagnosis appears twice in the same episode (e.g. "Finger pain" coded twice on 2024-03-07), the second occurrence is **skipped entirely**. This ensures each diagnosis appears exactly once per episode in all downstream output — no duplicate entries in reports.
+
+**Layer 2 — Term-level caching** (avoids redundant compute):
+When the same diagnosis term appears in a *different* episode (different index_date), a new output entry is created but cached results are reused:
+
+| Stage | Cache Key | What's Reused |
 |-------|-----------|-------------|
 | **Query Agent** | `diagnosis_term` | Generated queries (template or LLM) |
 | **Retriever** | `diagnosis_term` | Embeddings + FAISS search results |
-| **Scorer** | `(diagnosis_term, index_date)` | LLM adherence score |
+| **Scorer** | N/A (each episode scored independently) | — |
 
-The Query Agent and Retriever cache by diagnosis term alone — the same diagnosis always produces the same queries and the same guideline matches regardless of which episode it appears in. The Scorer uses `(term, date)` because different episodes may have different treatments/referrals, which could affect the adherence score.
+The Query Agent and Retriever cache by diagnosis term alone — the same diagnosis always produces the same queries and the same guideline matches regardless of which episode it appears in. The Scorer doesn't need term-level caching because different episodes may have different treatments/referrals.
 
-For our example patient with 4x "Finger pain" + 2x "Finger fracture":
-- **Before:** 4 LLM query calls, 6 encode+search, 6 scorer LLM calls = **10 LLM calls**
-- **After:** 1 LLM query call, 2 encode+search, 2 scorer LLM calls = **3 LLM calls**
+For our example patient with 4x "Finger pain" + 2x "Finger fracture" across 2 episodes:
+- **Before:** 4 LLM query calls, 6 encode+search, 6 scorer LLM calls = **10 LLM calls**, **6 report entries** (with duplicates)
+- **After:** 1 LLM query call, 2 encode+search, 2 scorer LLM calls = **3 LLM calls**, **4 report entries** (no duplicates)
 
-At batch scale (4,327 patients), this can save thousands of LLM calls.
+At batch scale (4,327 patients), this saves thousands of LLM calls and eliminates confusing duplicate entries in reports.
 
 ### Early Exit Points
 

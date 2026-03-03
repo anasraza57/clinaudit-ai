@@ -339,6 +339,26 @@ class TestParseScoringResponse:
         assert result["guidelines_followed"] == ["NSAIDs"]
         assert result["guidelines_not_followed"] == ["Physiotherapy referral"]
 
+    def test_parse_score_with_square_brackets(self):
+        """LLMs sometimes output Score: [+1] with brackets. Must parse correctly."""
+        adherent = (
+            "Score: [+1]\n"
+            "Explanation: Referral was appropriate.\n"
+            "Guidelines Followed: Physiotherapy referral\n"
+            "Guidelines Not Followed: None"
+        )
+        result = parse_scoring_response(adherent)
+        assert result["score"] == 1
+
+        non_adherent = (
+            "Score: [-1]\n"
+            "Explanation: No actions taken.\n"
+            "Guidelines Followed: None\n"
+            "Guidelines Not Followed: Treatment"
+        )
+        result = parse_scoring_response(non_adherent)
+        assert result["score"] == -1
+
 
 # ── DiagnosisScore tests ─────────────────────────────────────────────
 
@@ -638,10 +658,10 @@ class TestScorerAgent:
         assert ds.explanation != ""
 
     @pytest.mark.asyncio
-    async def test_duplicate_diagnosis_same_episode_scores_once(
+    async def test_duplicate_diagnosis_same_episode_skipped(
         self, mock_ai_provider, sample_extraction
     ):
-        """Same (diagnosis_term, index_date) should only call LLM once."""
+        """Same (diagnosis_term, index_date) should be scored once; duplicate skipped."""
         # Retrieval with duplicate diagnosis in the same episode
         retrieval = RetrievalResult(
             pat_id="pat-001",
@@ -688,12 +708,11 @@ class TestScorerAgent:
         agent = ScorerAgent(ai_provider=mock_ai_provider)
         result = await agent.score(sample_extraction, retrieval)
 
-        # 2 scores produced (both entries counted)
-        assert result.total_diagnoses == 2
-        # But LLM called only once (cached for duplicate)
+        # Only 1 unique (diagnosis, date) → only 1 score entry
+        assert result.total_diagnoses == 1
+        assert len(result.diagnosis_scores) == 1
+        # LLM called only once
         assert mock_ai_provider.chat_simple.call_count == 1
-        # Both scores should be the same object
-        assert result.diagnosis_scores[0] is result.diagnosis_scores[1]
 
 
 # ── _format_guidelines tests ─────────────────────────────────────────

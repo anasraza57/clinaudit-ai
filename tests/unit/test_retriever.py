@@ -337,6 +337,42 @@ class TestRetrieverAgent:
             is result.diagnosis_guidelines[1].guidelines
         )
 
+    def test_duplicate_diagnosis_same_date_skipped(self, mock_embedder, mock_vector_store):
+        """Same (diagnosis_term, index_date) should produce only one entry."""
+        qr = QueryResult(
+            pat_id="pat-dedup2",
+            diagnosis_queries=[
+                DiagnosisQueries(
+                    diagnosis_term="Finger pain",
+                    concept_id="1",
+                    index_date="2024-03-07",
+                    queries=["finger pain guidelines"],
+                    source="llm",
+                ),
+                DiagnosisQueries(
+                    diagnosis_term="Finger pain",
+                    concept_id="1",
+                    index_date="2024-03-07",
+                    queries=["finger pain guidelines"],
+                    source="llm",
+                ),
+            ],
+            total_diagnoses=2,
+            total_queries=2,
+        )
+
+        agent = RetrieverAgent(
+            embedder=mock_embedder,
+            vector_store=mock_vector_store,
+        )
+        result = agent.retrieve(qr)
+
+        # Only 1 unique (term, date) → only 1 DiagnosisGuidelines entry
+        assert result.total_diagnoses == 1
+        assert len(result.diagnosis_guidelines) == 1
+        # encode_batch called only once
+        assert mock_embedder.encode_batch.call_count == 1
+
 
 # ── Data class tests ──────────────────────────────────────────────────
 

@@ -3,14 +3,16 @@ Report API routes.
 
 Read-only analytics endpoints for reviewing audit results:
 dashboard stats, condition breakdowns, non-adherent cases,
-and score distributions.
+score distributions, and downloadable exports (CSV/HTML).
 """
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.database import get_session
+from src.services.export import generate_csv, generate_html_report
 from src.services.reporting import (
     get_condition_breakdown,
     get_dashboard_stats,
@@ -144,3 +146,43 @@ async def score_distribution(
     of guideline adherence across the patient population.
     """
     return await get_score_distribution(session, job_id, bins)
+
+
+# ── Export endpoints ─────────────────────────────────────────────────
+
+
+@router.get("/export/csv", summary="Download CSV export", response_class=Response)
+async def export_csv(
+    job_id: int | None = Query(None, description="Scope to a specific batch job"),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Download audit results as a CSV file.
+
+    One row per diagnosis per patient, with columns: pat_id, overall_score,
+    diagnosis, index_date, score, explanation, guidelines_followed,
+    guidelines_not_followed. Open in Excel/Google Sheets or share directly.
+    """
+    csv_content = await generate_csv(session, job_id)
+    filename = f"guideline_guard_audit{'_job_' + str(job_id) if job_id else ''}.csv"
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export/html", summary="Download HTML report", response_class=HTMLResponse)
+async def export_html(
+    job_id: int | None = Query(None, description="Scope to a specific batch job"),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Generate a self-contained HTML audit report.
+
+    Opens directly in any browser. Includes dashboard summary, per-condition
+    adherence breakdown, and detailed per-patient results with LLM explanations.
+    Suitable for sharing via email, printing, or presenting.
+    """
+    html_content = await generate_html_report(session, job_id)
+    return HTMLResponse(content=html_content)

@@ -449,6 +449,44 @@ class TestQueryAgentWithLLM:
         assert result.diagnosis_queries[0].index_date == "2024-01-15"
         assert result.diagnosis_queries[1].index_date == "2024-06-01"
 
+    @pytest.mark.asyncio
+    async def test_duplicate_diagnosis_same_episode_skipped(self):
+        """Same diagnosis term + same index_date should produce only one entry."""
+        extraction = ExtractionResult(
+            pat_id="pat-dedup2",
+            episodes=[
+                PatientEpisode(
+                    index_date=date(2024, 3, 7),
+                    entries=[
+                        CategorisedEntry(
+                            concept_id="1",
+                            term="Finger pain",
+                            concept_display="Finger pain",
+                            cons_date=date(2024, 3, 7),
+                            category="diagnosis",
+                        ),
+                        CategorisedEntry(
+                            concept_id="1",
+                            term="Finger pain",
+                            concept_display="Finger pain",
+                            cons_date=date(2024, 3, 7),
+                            category="diagnosis",
+                        ),
+                    ],
+                ),
+            ],
+            total_entries=2,
+            total_diagnoses=2,
+        )
+
+        agent = QueryAgent(ai_provider=None)
+        result = await agent.generate_queries(extraction)
+
+        # Only 1 unique (term, date) → only 1 DiagnosisQueries entry
+        assert result.total_diagnoses == 1
+        assert len(result.diagnosis_queries) == 1
+        assert result.diagnosis_queries[0].diagnosis_term == "Finger pain"
+
 
 # ── DiagnosisQueries / QueryResult dataclass tests ────────────────────
 

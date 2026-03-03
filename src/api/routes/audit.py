@@ -202,6 +202,7 @@ async def start_batch_audit(
     background_tasks: BackgroundTasks,
     limit: int | None = Query(None, ge=1, description="Maximum number of patients to audit (default: all)"),
     pat_ids: list[str] | None = Query(None, description="Specific patient IDs to audit (default: all)"),
+    skip_audited: bool = Query(False, description="Skip patients that already have a completed audit result"),
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -214,10 +215,19 @@ async def start_batch_audit(
     - Omit both parameters to audit all patients in the database
     - Use `limit` to audit a random subset (e.g. `?limit=50`)
     - Use `pat_ids` to audit specific patients
+    - Use `skip_audited=true` to only audit patients without a completed result
+      (useful for incremental batches — run `?limit=10&skip_audited=true` repeatedly)
 
     Each patient is processed through the full 4-agent pipeline.
     Progress is committed every 10 patients.
     """
+    # Subquery: patient IDs that already have a completed audit result
+    already_audited_subq = (
+        select(Patient.id)
+        .join(AuditResult, AuditResult.patient_id == Patient.id)
+        .where(AuditResult.status == "completed")
+    )
+
     # Resolve patient IDs
     if pat_ids is not None:
         ids = pat_ids
@@ -232,8 +242,18 @@ async def start_batch_audit(
                 status_code=404,
                 detail=f"Patients not found: {sorted(missing)[:10]}",
             )
+        # Filter out already-audited if requested
+        if skip_audited:
+            result = await session.execute(
+                select(Patient.pat_id)
+                .where(Patient.pat_id.in_(ids))
+                .where(~Patient.id.in_(already_audited_subq))
+            )
+            ids = [row[0] for row in result.all()]
     else:
         query = select(Patient.pat_id)
+        if skip_audited:
+            query = query.where(~Patient.id.in_(already_audited_subq))
         if limit is not None:
             query = query.limit(limit)
         result = await session.execute(query)
@@ -467,6 +487,7 @@ async def get_job_status(
 )
 async def get_job_results(
     job_id: int,
+    status: str | None = Query(None, description="Filter by result status (completed | failed)"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Results per page"),
     session: AsyncSession = Depends(get_session),
@@ -485,22 +506,29 @@ async def get_job_results(
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
-    # Count total results
-    total = await session.scalar(
+    # Count total results (with optional status filter)
+    count_q = (
         select(func.count())
         .select_from(AuditResult)
         .where(AuditResult.job_id == job_id)
     )
+    if status is not None:
+        count_q = count_q.where(AuditResult.status == status)
+    total = await session.scalar(count_q)
     total = total or 0
     total_pages = max(1, (total + page_size - 1) // page_size)
 
     # Fetch paginated results with patient info
     offset = (page - 1) * page_size
-    result = await session.execute(
+    results_q = (
         select(AuditResult, Patient.pat_id)
         .join(Patient, AuditResult.patient_id == Patient.id)
         .where(AuditResult.job_id == job_id)
-        .order_by(AuditResult.id)
+    )
+    if status is not None:
+        results_q = results_q.where(AuditResult.status == status)
+    result = await session.execute(
+        results_q.order_by(AuditResult.id)
         .offset(offset)
         .limit(page_size)
     )

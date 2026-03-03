@@ -180,6 +180,63 @@ RetrievalResult (from Retriever)
    ScoringResult (per-diagnosis scores + aggregate)
 ```
 
+### The Scoring Rubric
+
+The system uses **binary scoring** per diagnosis: **+1 (adherent)** or **-1 (non-adherent)**. This matches the approach used in the original GuidelineGuard paper (Shahriyear, 2024).
+
+#### What Each Score Means
+
+| Score | Meaning | When It's Given |
+|-------|---------|-----------------|
+| **+1 (Adherent)** | The GP's documented management broadly follows NICE guidelines | At least one appropriate clinical action was taken |
+| **-1 (Non-adherent)** | The GP's documented management does not follow NICE guidelines | No relevant actions taken, or actions contradict guidelines |
+
+#### When a Diagnosis Scores +1 (Adherent)
+
+A diagnosis receives +1 if **any** of the following are true:
+
+1. **A relevant referral was made** — e.g., referral to physiotherapy, orthopaedics, rheumatology, or "further care". For most MSK conditions, NICE guidelines recommend physiotherapy as first-line management. A physio referral alone is sufficient for +1.
+2. **Appropriate treatments were prescribed** — e.g., NSAIDs for low back pain, analgesics for osteoarthritis, corticosteroid injection for tennis elbow.
+3. **Relevant investigations were ordered** — e.g., X-ray for suspected fracture, blood tests for inflammatory markers in suspected gout.
+4. **The documented actions show reasonable clinical engagement** — the GP took some action that aligns with what the guidelines recommend.
+
+#### When a Diagnosis Scores -1 (Non-adherent)
+
+A diagnosis receives -1 if **either** of the following are true:
+
+1. **No actions at all** — the diagnosis is documented but there are NO treatments, NO referrals, AND NO investigations. The GP identified the condition but the coded record shows no management whatsoever.
+2. **Actions contradict guidelines** — e.g., prescribing opioids as first-line treatment for chronic low back pain (NICE specifically recommends against this).
+
+#### The "Benefit of the Doubt" Principle
+
+The scorer is designed to be **generous rather than punitive**, for good reason:
+
+- **Coded records are incomplete.** Our data comes from SNOMED-coded clinical entries. Many GP actions don't generate SNOMED codes: verbal advice ("take paracetamol, rest, apply ice"), over-the-counter recommendations, lifestyle guidance, and clinical reasoning are all absent. Prescriptions may be in a separate prescribing system. The absence of a coded treatment does NOT mean no treatment was given.
+- **GPs exercise clinical judgment.** A GP may have valid reasons for deviating from guidelines that aren't captured in the record (e.g., patient has a contraindication, already tried the recommended treatment, prefers a different approach).
+- **Referrals count as management.** A referral to physiotherapy, a specialist, or "further care" IS a form of management — it means the GP has taken action and directed the patient to appropriate next steps.
+
+#### Aggregate Score
+
+The patient-level aggregate score is the **proportion of adherent diagnoses**:
+
+```
+aggregate_score = adherent_count / (adherent_count + non_adherent_count)
+```
+
+- Range: 0.0 (all diagnoses non-adherent) to 1.0 (all adherent)
+- Diagnoses that errored during scoring are **excluded** from the aggregate — they don't count for or against the patient
+- A patient with 3 diagnoses scoring +1, +1, -1 gets an aggregate of 0.667
+
+#### Real Examples from Our Dataset
+
+| Patient | Diagnosis | Actions | Score | Why |
+|---------|-----------|---------|-------|-----|
+| 01aa45a7 | Hip pain | Referral to physiotherapist | **+1** | Physio referral is first-line NICE management for hip pain |
+| 01fde560 | Elbow joint pain | None | **-1** | No treatments, no referrals, no investigations at all |
+| 001e1fe6 | Finger pain | None | **-1** | Diagnosis only, no clinical actions documented |
+| 00abc394 | Neck pain | Referral for further care | **+1** | Referral demonstrates clinical engagement |
+| 0381f1e4 | Shoulder pain | Referral to physiotherapist, hormone treatments (unrelated) | **+1** | Physio referral is relevant and appropriate |
+
 ### The Scoring Prompt
 
 The prompt is the most important part of the Scorer. It's what the LLM sees when evaluating adherence. Here's its structure:
@@ -192,7 +249,7 @@ musculoskeletal condition adheres to NICE clinical guidelines.
 **Diagnosis:** Low back pain
 **Index Date:** 2024-01-15
 
-**Documented Actions:**
+**Documented Actions (from coded SNOMED records):**
 - Treatments: Ibuprofen 400mg tablets
 - Referrals: Physiotherapy referral
 - Investigations: None documented
@@ -203,25 +260,34 @@ musculoskeletal condition adheres to NICE clinical guidelines.
 Offer exercise therapy as first-line treatment. Consider NSAIDs for short-term
 pain relief...
 
-### Low back pain and sciatica in over 16s
-Consider referral to physiotherapy. Do not offer opioids for chronic low back pain...
-
 ## Task
 Evaluate whether the documented clinical actions follow the NICE guidelines
 for this diagnosis.
 
-## Important Rules
-- If treatments and referrals broadly align, score +1
-- If they clearly contradict or critical actions are missing, score -1
-- If NO treatments/referrals/investigations are recorded, score -1
-- Give benefit of the doubt — GPs may have good reasons for deviating
+## Important Rules — READ CAREFULLY
+**About the data:** These are SNOMED-coded clinical records, NOT free-text
+notes. Many GP actions are NOT captured in coded data — verbal advice,
+over-the-counter recommendations, prescriptions from separate systems, and
+clinical reasoning are typically absent.
+
+**Scoring guidance:**
+- Score +1 (ADHERENT) if ANY of the following are true:
+  - A relevant referral was made (referrals ARE a form of management)
+  - Appropriate treatments were prescribed
+  - Relevant investigations were ordered
+  - The documented actions show reasonable clinical engagement
+- Score -1 (NON-ADHERENT) only if:
+  - NO treatments, NO referrals, AND NO investigations at all
+  - Actions clearly CONTRADICT the guidelines
+- Give the benefit of the doubt
+- A physiotherapy or specialist referral alone is sufficient for +1
 - Base evaluation ONLY on provided guidelines, not general medical knowledge
 
 ## Output Format
-Score: [+1 or -1]
-Explanation: [2-3 sentence explanation]
-Guidelines Followed: [list or "None"]
-Guidelines Not Followed: [list or "None"]
+Score: +1 or -1
+Explanation: 2-3 sentence explanation
+Guidelines Followed: comma-separated list or "None"
+Guidelines Not Followed: comma-separated list or "None"
 ```
 
 Key improvements over Cyprian's prompt:
@@ -231,13 +297,16 @@ Key improvements over Cyprian's prompt:
 - **Structured output format** — explicitly asks for guidelines followed/not followed
 - **"Benefit of the doubt" rule** — prevents over-penalisation for reasonable clinical judgment
 - **"ONLY on provided guidelines" rule** — prevents the LLM from using its own medical knowledge
+- **Sparse data context** — explains that these are SNOMED-coded records where many GP actions aren't captured, so absence of coded treatments ≠ no treatment
+- **Referral-as-management** — explicitly states that referrals to physiotherapy/specialists are sufficient for +1 (first-line NICE management for most MSK conditions)
+- **Example output** — includes a concrete example to prevent the LLM from misinterpreting format placeholders as literal brackets
 
 ### Response Parsing
 
 The LLM returns a structured response that we parse with regex:
 
 ```python
-_SCORE_PATTERN = re.compile(r"Score:\s*([+-]?1)", re.IGNORECASE)
+_SCORE_PATTERN = re.compile(r"Score:\s*\[?([+-]?1)\]?", re.IGNORECASE)
 _EXPLANATION_PATTERN = re.compile(
     r"Explanation:\s*(.+?)(?=\nGuidelines Followed:|\Z)",
     re.IGNORECASE | re.DOTALL,
@@ -254,8 +323,11 @@ _NOT_FOLLOWED_PATTERN = re.compile(
 
 Note the `re.IGNORECASE` flag — this fixes Cyprian's case-sensitivity bug. Whether the LLM outputs "Score:", "score:", or "SCORE:", we'll catch it.
 
+The `\[?` and `\]?` in the score pattern handle LLMs that output `Score: [+1]` with brackets (copying the format from prompt templates literally). Without this, the regex fails to match and ALL scores default to -1 — a critical parsing bug we discovered when all 49 initial patients scored 0.0 adherence.
+
 The parser also handles:
 - Missing plus sign (`1` treated same as `+1`)
+- Square brackets around score (`[+1]` and `[-1]`)
 - Multiline explanations
 - "None" for empty lists
 - Extra whitespace
@@ -390,7 +462,7 @@ The pipeline orchestrator (Phase 6) will call this with both results. No servers
 | **Clinical context** | Treatments only | Treatments + referrals + investigations + procedures |
 | **Guideline text** | 1 guideline, 500 chars | Top-K guidelines, 2,000 chars (configurable) |
 | **Guideline selection** | Substring match (`diag in text`) | Pre-matched by Retriever (semantic search) |
-| **Score parsing** | Case-sensitive bug (always -1) | Case-insensitive regex, handles edge cases |
+| **Score parsing** | Case-sensitive bug (always -1) | Case-insensitive regex, handles brackets/edge cases |
 | **Output structure** | Score + explanation only | Score + explanation + followed + not followed |
 | **Error handling** | None (crashes on API error) | Per-diagnosis error capture, continues processing |
 | **Aggregate formula** | `followed / total` (same) | `adherent / scored` (excludes errors) |
@@ -410,9 +482,9 @@ The pipeline orchestrator (Phase 6) will call this with both results. No servers
 
 ## Test Coverage
 
-32 tests covering:
+34 tests covering:
 
-- **Response parsing** (8 tests): adherent/non-adherent, case insensitive, multiline, whitespace, defaults, missing fields
+- **Response parsing** (9 tests): adherent/non-adherent, case insensitive, multiline, whitespace, defaults, missing fields, square bracket format
 - **Data classes** (8 tests): DiagnosisScore creation, ScoringResult aggregate calculation (all adherent, all non-adherent, mixed, with errors, empty), summary structure
 - **ScorerAgent** (12 tests): single diagnosis, multi-diagnosis, LLM call verification, prompt content (diagnosis terms, treatments, guidelines), temperature setting, empty inputs, non-adherent results, error handling, missing episodes, guideline title storage, field preservation
 - **Guideline formatting** (4 tests): with guidelines, empty, max chars truncation, rank ordering

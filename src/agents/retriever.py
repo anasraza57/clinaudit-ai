@@ -125,7 +125,19 @@ class RetrieverAgent:
         # queries, embeddings, and FAISS results regardless of episode.
         retrieval_cache: dict[str, list[GuidelineMatch]] = {}
 
+        # Track unique (term, index_date) to avoid duplicate output entries.
+        seen_pairs: set[tuple[str, str]] = set()
+
         for dq in query_result.diagnosis_queries:
+            pair_key = (dq.diagnosis_term, dq.index_date)
+            if pair_key in seen_pairs:
+                logger.debug(
+                    "Skipping duplicate retrieval entry for %r (index_date=%s)",
+                    dq.diagnosis_term, dq.index_date,
+                )
+                continue
+            seen_pairs.add(pair_key)
+
             if dq.diagnosis_term in retrieval_cache:
                 logger.debug(
                     "Reusing cached retrieval for %r (index_date=%s)",

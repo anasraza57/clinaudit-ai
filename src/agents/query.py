@@ -267,9 +267,23 @@ class QueryAgent:
         query_cache: dict[str, list[str]] = {}
         source_cache: dict[str, str] = {}
 
+        # Track unique (term, index_date) pairs to avoid duplicate entries
+        # (e.g. "Finger pain" coded twice in the same episode).
+        seen_pairs: set[tuple[str, str]] = set()
+
         for episode in extraction.episodes:
             for diagnosis in episode.diagnoses:
                 term = diagnosis.term
+                pair_key = (term, str(episode.index_date))
+
+                # Skip if this exact (diagnosis, date) is already in the output
+                if pair_key in seen_pairs:
+                    logger.debug(
+                        "Skipping duplicate entry for %r (index_date=%s)",
+                        term, episode.index_date,
+                    )
+                    continue
+                seen_pairs.add(pair_key)
 
                 if term in query_cache:
                     logger.debug(
