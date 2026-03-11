@@ -9,13 +9,13 @@ from datetime import date
 
 import pytest
 
-from src.agents.extractor import ExtractorAgent, ExtractionResult
+from src.agents.extractor import ConsultationInsightAgent, ExtractionResult
 
 
 @pytest.fixture()
 def agent():
-    """Create an ExtractorAgent with a pre-loaded category cache."""
-    a = ExtractorAgent(ai_provider=None)
+    """Create an ConsultationInsightAgent with a pre-loaded category cache."""
+    a = ConsultationInsightAgent(ai_provider=None)
     a._category_cache = {
         "Low back pain": "diagnosis",
         "Fracture of phalanx of finger": "diagnosis",
@@ -67,7 +67,7 @@ def sample_entries():
     ]
 
 
-class TestExtractorAgent:
+class TestConsultationInsightAgent:
     def test_extract_groups_by_index_date(self, agent, sample_entries):
         result = agent.extract("pat-001", sample_entries)
         assert len(result.episodes) == 2
@@ -142,7 +142,7 @@ class TestExtractorAgent:
 
     @pytest.mark.asyncio
     async def test_load_categories(self):
-        agent = ExtractorAgent(ai_provider=None)
+        agent = ConsultationInsightAgent(ai_provider=None)
         concepts = ["Low back pain", "Referral to physiotherapist"]
         mapping = await agent.load_categories(concepts)
 

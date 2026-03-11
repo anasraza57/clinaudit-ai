@@ -10,6 +10,7 @@ import logging
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import func, select
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.database import get_session
@@ -53,9 +54,14 @@ async def data_stats(
 
     Use this to verify data has been imported correctly.
     """
-    patients = await session.scalar(select(func.count()).select_from(Patient))
-    entries = await session.scalar(select(func.count()).select_from(ClinicalEntry))
-    guidelines = await session.scalar(select(func.count()).select_from(Guideline))
+    try:
+        patients = await session.scalar(select(func.count()).select_from(Patient))
+        entries = await session.scalar(select(func.count()).select_from(ClinicalEntry))
+        guidelines = await session.scalar(select(func.count()).select_from(Guideline))
+    except ProgrammingError:
+        # Tables don't exist yet (migrations not run)
+        await session.rollback()
+        return {"patients": 0, "clinical_entries": 0, "guidelines": 0}
     return {
         "patients": patients or 0,
         "clinical_entries": entries or 0,

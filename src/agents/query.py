@@ -1,17 +1,18 @@
 """
-Query Agent — Stage 2 of the audit pipeline.
+Audit Query Generator — Stage 2 of the audit pipeline.
 
-Takes the ExtractionResult from the Extractor and generates targeted
-search queries for each diagnosis. These queries are later embedded
-and used to search the FAISS guideline index (by the Retriever Agent).
+Takes the ExtractionResult from the Consultation Insight Agent and
+generates targeted search queries for each diagnosis. These queries
+are later embedded and used to search the FAISS guideline index
+(by the Guideline Evidence Finder).
 
-The Query Agent's job:
+The Audit Query Generator's job:
 1. Receive structured extraction (diagnoses per episode)
 2. Generate 1-3 search queries per diagnosis, optimised for
    PubMedBERT/FAISS similarity search against NICE guidelines
-3. Return structured QueryResult for the Retriever Agent
+3. Return structured QueryResult for the Guideline Evidence Finder
 
-Two-tier approach (matching the Extractor pattern):
+Two-tier approach (matching the Consultation Insight Agent pattern):
 - Rule-based templates for straightforward MSK diagnoses
 - LLM generation for complex or unusual diagnoses
 """
@@ -230,12 +231,12 @@ class QueryResult:
         ]
 
 
-class QueryAgent:
+class AuditQueryGenerator:
     """
     Generates guideline search queries from extracted diagnoses.
 
     Usage:
-        agent = QueryAgent(ai_provider=provider)
+        agent = AuditQueryGenerator(ai_provider=provider)
         query_result = await agent.generate_queries(extraction_result)
     """
 

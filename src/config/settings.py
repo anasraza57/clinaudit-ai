@@ -56,7 +56,7 @@ class Settings(BaseSettings):
         )
 
     # ── AI / LLM Provider ────────────────────────────────────────
-    ai_provider: Literal["openai", "anthropic", "local"] = "openai"
+    ai_provider: Literal["openai", "anthropic", "ollama", "local"] = "openai"
 
     # OpenAI
     openai_api_key: str = ""
@@ -68,6 +68,13 @@ class Settings(BaseSettings):
     # Anthropic
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-20250514"
+
+    # Ollama (local LLM)
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "mistral-small"
+    ollama_max_tokens: int = 2048
+    ollama_temperature: float = 0.0
+    ollama_request_timeout: float = 120.0
 
     # ── Vector Search ────────────────────────────────────────────
     faiss_index_path: str = "data/guidelines.index"
@@ -82,6 +89,7 @@ class Settings(BaseSettings):
 
     # ── Pipeline Settings ────────────────────────────────────────
     retriever_top_k: int = 5
+    retriever_min_similarity: float = 1.2  # Max L2 distance; results above this are filtered
     max_queries_per_diagnosis: int = 3
     scorer_max_guideline_chars: int = 2000
 

@@ -143,15 +143,17 @@ def sample_scoring():
                 diagnosis_term="Low back pain",
                 concept_id="279039007",
                 index_date="2024-01-15",
-                score=1,
+                score=2,
+                judgement="COMPLIANT",
                 explanation="Good adherence.",
+                confidence=0.85,
+                cited_guideline_text="Exercise therapy recommended.",
                 guidelines_followed=["Exercise"],
                 guidelines_not_followed=[],
             ),
         ],
         total_diagnoses=1,
-        adherent_count=1,
-        non_adherent_count=0,
+        compliant_count=1,
     )
 
 

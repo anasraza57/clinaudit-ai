@@ -179,7 +179,8 @@ def retriever_node(state):
 | **Model management** | Global variables, never unloaded | Singleton with load/unload, proper memory management |
 | **Error handling** | None | RuntimeError if not loaded, logging throughout |
 | **Configuration** | Hardcoded k=5 | Configurable via `RETRIEVER_TOP_K` setting |
-| **Testing** | None | 27 unit tests (13 embedder + 14 retriever) |
+| **Relevance filtering** | None — all top-K returned blindly | Two-layer filter: title exclusion + topic matching + L2 threshold |
+| **Testing** | None | 34 unit tests (13 embedder + 21 retriever) |
 | **Portability** | Google Colab notebook | Standard Python modules, works anywhere |
 
 ## Memory Safety: PyTorch Tensors and FAISS
@@ -239,6 +240,68 @@ os.environ["OMP_NUM_THREADS"] = "1"              # Limit PyTorch/OpenMP threads
 
 This forces single-threaded tokenization, which is still fast enough for our query sizes (1-3 short sentences per diagnosis). The fix may not be needed on Linux/Docker where threading behaviour differs.
 
+## Post-Retrieval Relevance Filtering (Phase 10a)
+
+### The Problem
+
+After running 50-patient audits with both OpenAI and Ollama, a comparison analysis revealed that 80% of inter-model disagreements were caused by the FAISS retriever returning **irrelevant guidelines**. For example:
+
+- "Carpal tunnel syndrome" → retrieved "Recent-onset chest pain of suspected cardiac origin" guidelines
+- "Foot pain" → retrieved "Diabetic foot problems" guidelines
+- "Primary prevention of cardiovascular disease" → retrieved MSK-focused guidelines
+
+OpenAI's scorer masked these by giving credit for any referral regardless of the guideline context. Ollama's scorer correctly flagged them as "NOT RELEVANT" (score 0, confidence 1.0). The root cause: the 277K-guideline FAISS corpus includes oncology, cardiology, endocrinology, etc., and PubMedBERT embeddings aren't specific enough to distinguish MSK from non-MSK at the margins.
+
+### The Solution
+
+A two-layer post-retrieval filter in `_filter_irrelevant()`, applied **after** FAISS search + dedup but **before** top-K truncation:
+
+**Layer A — Title-based filtering (zero cost):**
+1. **Excluded specialty terms** — Guidelines whose titles contain terms like "cancer", "cardiac", "diabetic", "pregnancy" are excluded for MSK diagnoses. Defined in `_EXCLUDE_TITLE_TERMS`.
+2. **Topic overlap check** — The diagnosis and guideline title are each mapped to topic tags (e.g., "spine", "knee", "shoulder") using `_TOPIC_KEYWORDS`. If both have topic tags but none overlap, the guideline is filtered.
+
+**Layer B — Distance threshold:**
+- Guidelines with L2 distance > `RETRIEVER_MIN_SIMILARITY` (default 1.2) are removed. High distance means weak semantic match.
+
+**Fallback safety:**
+- If ALL guidelines are filtered, the best match is kept as a fallback, so the scorer never receives zero context.
+
+### Data Flow (Updated)
+
+```
+Query Agent produces:  "NICE guidelines for carpal tunnel syndrome management"
+                          ↓
+Embedder encodes it:   [0.023, -0.157, 0.089, ..., 0.041]  (768 floats)
+                          ↓
+VectorStore searches:  Returns top-K from 277K guidelines
+                          ↓
+Merge + dedup:         5 unique guidelines
+                          ↓
+Filter irrelevant:     Remove "chest pain", "cancer", etc.     ← NEW
+                          ↓
+Top-K:                 Return filtered results (up to 5)
+```
+
+### Topic Keyword Groups
+
+13 body-region/condition groups are defined in `_TOPIC_KEYWORDS`:
+
+| Group | Example keywords |
+|---|---|
+| `spine` | back, lumbar, spinal, sciatica, disc, thoracic, cervical |
+| `knee` | knee, patella, meniscal, cruciate, acl |
+| `hip` | hip, femoral, acetabular, groin |
+| `shoulder` | shoulder, rotator, supraspinatus, impingement |
+| `hand_wrist` | hand, wrist, carpal, tunnel, finger, thumb |
+| `foot_ankle` | foot, ankle, plantar, heel, toe, metatarsal |
+| `osteoarthritis` | osteoarthritis, arthritis, arthrosis, joint replacement |
+| `fracture` | fracture, broken, fractures |
+| ... | (and 5 more groups) |
+
+### Why Not Re-Index?
+
+We considered filtering the guideline corpus to only MSK guidelines, but this would lose cross-specialty references (e.g., cardiovascular risk assessment in rheumatoid arthritis guidelines). Post-retrieval filtering is more surgical — it catches obvious mismatches while preserving genuine cross-references.
+
 ## Configuration
 
 | Setting | Default | Description |
@@ -246,6 +309,7 @@ This forces single-threaded tokenization, which is still fast enough for our que
 | `EMBEDDING_MODEL_NAME` | `NeuML/pubmedbert-base-embeddings-matryoshka` | HuggingFace model for encoding queries |
 | `EMBEDDING_DIMENSION` | 768 | Vector dimension (must match the FAISS index) |
 | `RETRIEVER_TOP_K` | 5 | Number of guideline matches to return per diagnosis |
+| `RETRIEVER_MIN_SIMILARITY` | 1.2 | Max L2 distance; results above this are filtered out |
 
 ## Important: Why the Same Model Matters
 

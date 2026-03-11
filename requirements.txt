@@ -26,6 +26,9 @@ transformers==4.47.1
 # -- Data Processing --
 pandas==2.2.3
 
+# -- Chart Export --
+cairosvg>=2.7.0
+
 # -- HTTP --
 httpx==0.28.1
 

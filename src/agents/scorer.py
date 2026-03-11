@@ -1,15 +1,16 @@
 """
-Scorer Agent — Stage 4 (final) of the audit pipeline.
+Compliance Auditor Agent — Stage 4 (final) of the audit pipeline.
 
 Takes the ExtractionResult (what the GP did) and the RetrievalResult
 (what NICE guidelines recommend) and evaluates whether the documented
 clinical care adheres to the guidelines.
 
-The Scorer's job:
+The Compliance Auditor Agent's job:
 1. For each diagnosis, combine the patient's actions (treatments,
    referrals, investigations) with the retrieved guideline texts
-2. Ask the LLM to evaluate adherence
-3. Parse the response into a structured score (+1 adherent / -1 non-adherent)
+2. Ask the LLM to evaluate adherence using a 5-level grading scale
+3. Parse the response into a structured score (-2 to +2) with
+   confidence and NICE guideline citations
 4. Produce an aggregate score for the entire patient
 
 This agent requires an LLM provider — it cannot function without one.
@@ -18,6 +19,7 @@ This agent requires an LLM provider — it cannot function without one.
 import logging
 import re
 from dataclasses import dataclass, field
+from enum import IntEnum
 
 from src.agents.extractor import ExtractionResult, PatientEpisode
 from src.agents.retriever import DiagnosisGuidelines, RetrievalResult
@@ -25,6 +27,27 @@ from src.ai.base import AIProvider
 from src.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
+
+# ── Judgement scale ─────────────────────────────────────────────────
+
+
+class AuditJudgement(IntEnum):
+    """5-level audit judgement scale."""
+
+    RISKY_NON_COMPLIANT = -2
+    NON_COMPLIANT = -1
+    NOT_RELEVANT = 0
+    PARTIALLY_COMPLIANT = 1
+    COMPLIANT = 2
+
+
+JUDGEMENT_LABELS: dict[int, str] = {
+    2: "COMPLIANT",
+    1: "PARTIALLY COMPLIANT",
+    0: "NOT RELEVANT",
+    -1: "NON-COMPLIANT",
+    -2: "RISKY NON-COMPLIANT",
+}
 
 # ── Scoring prompt ───────────────────────────────────────────────────
 
@@ -53,38 +76,48 @@ Consider:
 1. Were any appropriate management actions taken (treatments, referrals, or investigations)?
 2. If a referral was made (e.g., to physiotherapy, a specialist, or further care), does that align with guideline recommendations?
 3. Is there evidence of at least SOME appropriate clinical response to the diagnosis?
+4. Were any actions taken that the guidelines specifically advise AGAINST?
 
 ## Important Rules — READ CAREFULLY
 
 **About the data:** These are SNOMED-coded clinical records, NOT free-text notes. Many GP actions are NOT captured in coded data — verbal advice, over-the-counter recommendations, prescriptions from separate systems, and clinical reasoning are typically absent. The absence of coded treatments does NOT mean no treatment was given.
 
-**Scoring guidance:**
-- Score +1 (ADHERENT) if ANY of the following are true:
-  - A relevant referral was made (e.g., physiotherapy, specialist, further care) — referrals ARE a form of management
-  - Appropriate treatments were prescribed
-  - Relevant investigations were ordered
-  - The documented actions show reasonable clinical engagement with the diagnosis
-- Score -1 (NON-ADHERENT) only if:
-  - The diagnosis is documented but there are NO treatments, NO referrals, AND NO investigations at all
-  - The documented actions clearly CONTRADICT the guidelines (e.g., a treatment the guidelines specifically advise against)
-- **Give the benefit of the doubt** — GPs may have good clinical reasons for their approach, and many appropriate actions are not captured in coded records
-- A physiotherapy or specialist referral alone is sufficient for +1 — this IS first-line management for most MSK conditions per NICE guidelines
+**Scoring guidance — use this 5-level scale:**
+
+- Score **+2 (COMPLIANT)**: Documented actions clearly and fully align with NICE guidelines. Multiple recommended steps are present (e.g., appropriate treatment AND referral AND investigation as recommended).
+- Score **+1 (PARTIALLY COMPLIANT)**: Some guideline-aligned actions are documented but with minor gaps. For example, a referral was made (which is correct) but a recommended first-line treatment is absent from the coded record. Give the benefit of the doubt — absence of coded data does not mean absence of care.
+- Score **0 (NOT RELEVANT)**: The guideline is not meaningfully applicable to this episode, OR the coded data is too sparse to make any judgement. Use this when there is genuinely no basis for comparison.
+- Score **-1 (NON-COMPLIANT)**: The diagnosis is documented but there are NO treatments, NO referrals, AND NO investigations at all — a complete absence of any documented management. Or, the documented actions clearly deviate from guidelines without safety risk.
+- Score **-2 (RISKY NON-COMPLIANT)**: The documented actions directly CONTRADICT the guidelines in a way that could cause patient harm. For example, prescribing a treatment the guidelines specifically advise against (e.g., opioids for chronic non-specific low back pain), or failing to refer when the guidelines flag a safety-critical red flag.
+
+**General principles:**
+- Give the benefit of the doubt — GPs may have good clinical reasons for their approach, and many appropriate actions are not captured in coded records
+- A physiotherapy or specialist referral alone warrants at least +1 — this IS first-line management for most MSK conditions per NICE guidelines
 - Base your evaluation ONLY on the provided guidelines, not general medical knowledge
+- You MUST cite the specific guideline text that informed your judgement
 
 ## Output Format
 
 You MUST respond in EXACTLY this format:
 
-Score: +1 or -1
+Score: -2, -1, 0, +1, or +2
+Judgement: COMPLIANT, PARTIALLY COMPLIANT, NOT RELEVANT, NON-COMPLIANT, or RISKY NON-COMPLIANT
+Confidence: a number between 0.0 and 1.0 indicating your confidence in this judgement
+Cited Guideline: a direct quote from the NICE guideline text above that most informed your judgement, or "None" if score is 0
 Explanation: 2-3 sentence explanation of your reasoning
 Guidelines Followed: comma-separated list of guideline recommendations that were followed, or "None"
 Guidelines Not Followed: comma-separated list of guideline recommendations that were NOT followed, or "None"
+Missing Care Opportunities: comma-separated list of specific NICE-recommended actions that SHOULD have been documented but are NOT present in the patient record (e.g., "exercise therapy advice", "weight management referral"), or "None" if no gaps identified
 
 Example:
 Score: +1
-Explanation: The GP referred the patient to physiotherapy which is recommended by NICE guidelines for this condition.
-Guidelines Followed: Physiotherapy referral, exercise advice
-Guidelines Not Followed: None"""
+Judgement: PARTIALLY COMPLIANT
+Confidence: 0.75
+Cited Guideline: "Consider referral to physiotherapy. Do not offer opioids for chronic low back pain."
+Explanation: The GP referred the patient to physiotherapy which is recommended by NICE guidelines. However, there is no coded evidence of exercise therapy advice or NSAID prescription.
+Guidelines Followed: Physiotherapy referral
+Guidelines Not Followed: Exercise therapy advice, NSAID prescription
+Missing Care Opportunities: Exercise therapy advice, NSAID prescription"""
 
 
 # ── Data classes ─────────────────────────────────────────────────────
@@ -97,41 +130,67 @@ class DiagnosisScore:
     diagnosis_term: str
     concept_id: str
     index_date: str
-    score: int  # +1 (adherent) or -1 (non-adherent)
+    score: int  # -2 to +2 (AuditJudgement scale)
+    judgement: str  # Human-readable label from JUDGEMENT_LABELS
     explanation: str
+    confidence: float = 0.0  # 0.0 to 1.0
+    cited_guideline_text: str = ""
     guidelines_followed: list[str] = field(default_factory=list)
     guidelines_not_followed: list[str] = field(default_factory=list)
+    missing_care_opportunities: list[str] = field(default_factory=list)
     guideline_titles_used: list[str] = field(default_factory=list)
-    error: str | None = None  # Set if scoring failed for this diagnosis
+    error: str | None = None
 
 
 @dataclass
 class ScoringResult:
-    """The output of the Scorer Agent for one patient."""
+    """The output of the Compliance Auditor Agent for one patient."""
 
     pat_id: str
     diagnosis_scores: list[DiagnosisScore] = field(default_factory=list)
     total_diagnoses: int = 0
-    adherent_count: int = 0
-    non_adherent_count: int = 0
+    compliant_count: int = 0
+    partial_count: int = 0
+    not_relevant_count: int = 0
+    non_compliant_count: int = 0
+    risky_count: int = 0
     error_count: int = 0
+
+    @property
+    def adherent_count(self) -> int:
+        """Compliant + partially compliant."""
+        return self.compliant_count + self.partial_count
+
+    @property
+    def non_adherent_count(self) -> int:
+        """Non-compliant + risky non-compliant."""
+        return self.non_compliant_count + self.risky_count
 
     @property
     def aggregate_score(self) -> float:
         """
-        Proportion of adherent diagnoses (0.0 to 1.0).
+        Normalized aggregate score (0.0 to 1.0).
+
+        Maps each score from [-2, +2] to [0.0, 1.0] then averages:
+        -2 -> 0.0, -1 -> 0.25, 0 -> 0.5, 1 -> 0.75, 2 -> 1.0
 
         Only counts successfully scored diagnoses (excludes errors).
         """
-        scored = self.adherent_count + self.non_adherent_count
-        if scored == 0:
+        scored = [ds for ds in self.diagnosis_scores if ds.error is None]
+        if not scored:
             return 0.0
-        return self.adherent_count / scored
+        normalized = [(ds.score + 2) / 4 for ds in scored]
+        return sum(normalized) / len(normalized)
 
     def summary(self) -> dict:
         return {
             "pat_id": self.pat_id,
             "total_diagnoses": self.total_diagnoses,
+            "compliant": self.compliant_count,
+            "partial": self.partial_count,
+            "not_relevant": self.not_relevant_count,
+            "non_compliant": self.non_compliant_count,
+            "risky": self.risky_count,
             "adherent": self.adherent_count,
             "non_adherent": self.non_adherent_count,
             "errors": self.error_count,
@@ -141,9 +200,13 @@ class ScoringResult:
                     "diagnosis": ds.diagnosis_term,
                     "index_date": ds.index_date,
                     "score": ds.score,
+                    "judgement": ds.judgement,
+                    "confidence": ds.confidence,
+                    "cited_guideline_text": ds.cited_guideline_text,
                     "explanation": ds.explanation,
                     "guidelines_followed": ds.guidelines_followed,
                     "guidelines_not_followed": ds.guidelines_not_followed,
+                    "missing_care_opportunities": ds.missing_care_opportunities,
                     "error": ds.error,
                 }
                 for ds in self.diagnosis_scores
@@ -153,7 +216,19 @@ class ScoringResult:
 
 # ── Response parsing ─────────────────────────────────────────────────
 
-_SCORE_PATTERN = re.compile(r"Score:\s*\[?([+-]?1)\]?", re.IGNORECASE)
+_SCORE_PATTERN = re.compile(r"Score:\s*\[?([+-]?[012])\]?", re.IGNORECASE)
+_JUDGEMENT_PATTERN = re.compile(
+    r"Judgement:\s*(.+?)(?=\nConfidence:|\Z)",
+    re.IGNORECASE | re.DOTALL,
+)
+_CONFIDENCE_PATTERN = re.compile(
+    r"Confidence:\s*([01](?:\.\d+)?)",
+    re.IGNORECASE,
+)
+_CITED_GUIDELINE_PATTERN = re.compile(
+    r'Cited Guideline:\s*"?(.+?)"?\s*(?=\nExplanation:|\Z)',
+    re.IGNORECASE | re.DOTALL,
+)
 _EXPLANATION_PATTERN = re.compile(
     r"Explanation:\s*(.+?)(?=\nGuidelines Followed:|\Z)",
     re.IGNORECASE | re.DOTALL,
@@ -163,7 +238,11 @@ _FOLLOWED_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _NOT_FOLLOWED_PATTERN = re.compile(
-    r"Guidelines Not Followed:\s*(.+?)$",
+    r"Guidelines Not Followed:\s*(.+?)(?=\nMissing Care Opportunities:|\Z)",
+    re.IGNORECASE | re.DOTALL,
+)
+_MISSING_CARE_PATTERN = re.compile(
+    r"Missing Care Opportunities:\s*(.+?)$",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -172,20 +251,44 @@ def parse_scoring_response(response_text: str) -> dict:
     """
     Parse the LLM's scoring response into structured fields.
 
-    Returns a dict with: score, explanation, guidelines_followed, guidelines_not_followed.
+    Returns a dict with: score, judgement, confidence, cited_guideline_text,
+    explanation, guidelines_followed, guidelines_not_followed.
     """
     result = {
-        "score": -1,  # Default to non-adherent if parsing fails
+        "score": -1,
+        "judgement": "NON-COMPLIANT",
+        "confidence": 0.0,
+        "cited_guideline_text": "",
         "explanation": "",
         "guidelines_followed": [],
         "guidelines_not_followed": [],
+        "missing_care_opportunities": [],
     }
 
-    # Parse score
+    # Parse score (-2 to +2)
     score_match = _SCORE_PATTERN.search(response_text)
     if score_match:
-        score_val = score_match.group(1)
-        result["score"] = 1 if score_val in ("+1", "1") else -1
+        score_val = int(score_match.group(1))
+        if -2 <= score_val <= 2:
+            result["score"] = score_val
+            result["judgement"] = JUDGEMENT_LABELS.get(score_val, "NON-COMPLIANT")
+
+    # Parse judgement (overrides the label derived from score if present)
+    judgement_match = _JUDGEMENT_PATTERN.search(response_text)
+    if judgement_match:
+        result["judgement"] = judgement_match.group(1).strip()
+
+    # Parse confidence
+    conf_match = _CONFIDENCE_PATTERN.search(response_text)
+    if conf_match:
+        result["confidence"] = float(conf_match.group(1))
+
+    # Parse cited guideline
+    cited_match = _CITED_GUIDELINE_PATTERN.search(response_text)
+    if cited_match:
+        raw = cited_match.group(1).strip().strip('"')
+        if raw.lower() != "none":
+            result["cited_guideline_text"] = raw
 
     # Parse explanation
     expl_match = _EXPLANATION_PATTERN.search(response_text)
@@ -210,18 +313,27 @@ def parse_scoring_response(response_text: str) -> dict:
                 item.strip() for item in raw.split(",") if item.strip()
             ]
 
+    # Parse missing care opportunities
+    missing_match = _MISSING_CARE_PATTERN.search(response_text)
+    if missing_match:
+        raw = missing_match.group(1).strip()
+        if raw.lower() != "none":
+            result["missing_care_opportunities"] = [
+                item.strip() for item in raw.split(",") if item.strip()
+            ]
+
     return result
 
 
-# ── Scorer Agent ─────────────────────────────────────────────────────
+# ── Compliance Auditor Agent ─────────────────────────────────────────
 
 
-class ScorerAgent:
+class ComplianceAuditorAgent:
     """
     Evaluates guideline adherence for each diagnosis using an LLM.
 
     Usage:
-        agent = ScorerAgent(ai_provider=provider)
+        agent = ComplianceAuditorAgent(ai_provider=provider)
         result = await agent.score(extraction_result, retrieval_result)
     """
 
@@ -239,30 +351,26 @@ class ScorerAgent:
         Score guideline adherence for all diagnoses.
 
         Args:
-            extraction: The ExtractionResult from the Extractor Agent.
-            retrieval: The RetrievalResult from the Retriever Agent.
+            extraction: The ExtractionResult from the Consultation Insight Agent.
+            retrieval: The RetrievalResult from the Guideline Evidence Finder.
 
         Returns:
             ScoringResult with per-diagnosis scores and aggregate.
         """
-        # Build a lookup: (diagnosis_term, index_date) → DiagnosisGuidelines
-        guidelines_map: dict[tuple[str, str], DiagnosisGuidelines] = {}
-        for dg in retrieval.diagnosis_guidelines:
-            key = (dg.diagnosis_term, dg.index_date)
-            guidelines_map[key] = dg
-
         # Build a lookup: index_date → PatientEpisode
         episode_map: dict[str, PatientEpisode] = {}
         for ep in extraction.episodes:
             episode_map[str(ep.index_date)] = ep
 
         all_scores: list[DiagnosisScore] = []
-        adherent = 0
-        non_adherent = 0
+        compliant = 0
+        partial = 0
+        not_relevant = 0
+        non_compliant = 0
+        risky = 0
         errors = 0
 
         # Track unique (term, index_date) to avoid duplicate score entries.
-        # Upstream agents should already deduplicate, but this is a safety net.
         seen_pairs: set[tuple[str, str]] = set()
 
         for dg in retrieval.diagnosis_guidelines:
@@ -289,27 +397,35 @@ class ScorerAgent:
 
             if ds.error:
                 errors += 1
+            elif ds.score == 2:
+                compliant += 1
             elif ds.score == 1:
-                adherent += 1
-            else:
-                non_adherent += 1
+                partial += 1
+            elif ds.score == 0:
+                not_relevant += 1
+            elif ds.score == -1:
+                non_compliant += 1
+            elif ds.score == -2:
+                risky += 1
 
         result = ScoringResult(
             pat_id=extraction.pat_id,
             diagnosis_scores=all_scores,
             total_diagnoses=len(all_scores),
-            adherent_count=adherent,
-            non_adherent_count=non_adherent,
+            compliant_count=compliant,
+            partial_count=partial,
+            not_relevant_count=not_relevant,
+            non_compliant_count=non_compliant,
+            risky_count=risky,
             error_count=errors,
         )
 
         logger.info(
-            "Scored patient %s: %d diagnoses, %d adherent, %d non-adherent, %d errors, aggregate=%.2f",
+            "Scored patient %s: %d diagnoses, %d compliant, %d partial, "
+            "%d not_relevant, %d non_compliant, %d risky, %d errors, aggregate=%.2f",
             extraction.pat_id,
             len(all_scores),
-            adherent,
-            non_adherent,
-            errors,
+            compliant, partial, not_relevant, non_compliant, risky, errors,
             result.aggregate_score,
         )
 
@@ -324,7 +440,6 @@ class ScorerAgent:
         guidelines: DiagnosisGuidelines,
     ) -> DiagnosisScore:
         """Score a single diagnosis against retrieved guidelines."""
-        # Build context from the episode
         treatments = "None documented"
         referrals = "None documented"
         investigations = "None documented"
@@ -340,11 +455,9 @@ class ScorerAgent:
             if episode.procedures:
                 procedures = ", ".join(p.term for p in episode.procedures)
 
-        # Build guidelines text (truncate to max chars)
         guidelines_text = self._format_guidelines(guidelines)
         guideline_titles = guidelines.guideline_titles
 
-        # Build the prompt
         prompt = SCORING_PROMPT.format(
             diagnosis=diagnosis_term,
             index_date=index_date,
@@ -358,7 +471,7 @@ class ScorerAgent:
         try:
             response = await self._ai_provider.chat_simple(
                 prompt,
-                temperature=0.0,  # Deterministic scoring
+                temperature=0.0,
             )
             parsed = parse_scoring_response(response)
 
@@ -367,9 +480,13 @@ class ScorerAgent:
                 concept_id=concept_id,
                 index_date=index_date,
                 score=parsed["score"],
+                judgement=parsed["judgement"],
                 explanation=parsed["explanation"],
+                confidence=parsed["confidence"],
+                cited_guideline_text=parsed["cited_guideline_text"],
                 guidelines_followed=parsed["guidelines_followed"],
                 guidelines_not_followed=parsed["guidelines_not_followed"],
+                missing_care_opportunities=parsed["missing_care_opportunities"],
                 guideline_titles_used=guideline_titles,
             )
 
@@ -385,7 +502,9 @@ class ScorerAgent:
                 concept_id=concept_id,
                 index_date=index_date,
                 score=-1,
+                judgement="NON-COMPLIANT",
                 explanation="Scoring failed due to an error.",
+                confidence=0.0,
                 guideline_titles_used=guideline_titles,
                 error=str(e),
             )
@@ -402,12 +521,10 @@ class ScorerAgent:
             header = f"### {match.title}\n"
             text = match.clean_text
 
-            # Check if adding this guideline would exceed the limit
             addition = header + text + "\n\n"
             if total_chars + len(addition) > self._max_guideline_chars:
-                # Add as much as we can fit
                 remaining = self._max_guideline_chars - total_chars
-                if remaining > len(header) + 50:  # Only add if meaningful
+                if remaining > len(header) + 50:
                     parts.append(header + text[: remaining - len(header) - 5] + "...")
                 break
 

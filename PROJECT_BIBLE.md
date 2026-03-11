@@ -1,7 +1,7 @@
 # PROJECT BIBLE — GuidelineGuard
 
-> **Last Updated:** 2026-03-03
-> **Status:** Phase 7a COMPLETE (Reporting Endpoints + Export) + Post-7a Crash Fixes — Next: Phase 7b (Gold-Standard Validation)
+> **Last Updated:** 2026-03-11
+> **Status:** Phase 9 COMPLETE + Phase 10a Retriever Relevance Filter ✅ + Phase 10b Comprehensive Evaluation Endpoints ✅ + Phase 10c Comparison HTML Report ✅ — All evaluation results generated, supervisor report ready
 
 ---
 
@@ -40,13 +40,13 @@ Currently, checking whether doctors follow these guidelines requires **manual ch
 A 4-agent AI pipeline that processes patient records and scores them against clinical guidelines:
 
 ```
-Patient Record → [Extractor] → [Query Generator] → [Retriever] → [Scorer] → Audit Report
+Patient Record → [Consultation Insight Agent] → [Audit Query Generator] → [Guideline Evidence Finder] → [Compliance Auditor Agent] → Audit Report
 ```
 
-1. **Extractor Agent** — Reads structured patient data (SNOMED-coded clinical entries), categorises each entry as a diagnosis, treatment, procedure, referral, etc.
-2. **Query Agent** — Takes extracted clinical concepts and generates targeted search queries for finding relevant guidelines.
-3. **Retriever Agent** — Uses semantic search (PubMedBERT embeddings + FAISS vector index) to find the most relevant NICE guideline passages for each query.
-4. **Scorer Agent** — Compares documented clinical decisions against retrieved guidelines using an LLM, producing per-diagnosis adherence scores (+1 adherent / -1 non-adherent) with explanations of guidelines followed/not followed, and a final aggregate score (proportion of adherent diagnoses).
+1. **Consultation Insight Agent** (`ConsultationInsightAgent`) — Reads structured patient data (SNOMED-coded clinical entries), categorises each entry as a diagnosis, treatment, procedure, referral, etc.
+2. **Audit Query Generator** (`AuditQueryGenerator`) — Takes extracted clinical concepts and generates targeted search queries for finding relevant guidelines.
+3. **Guideline Evidence Finder** (`GuidelineEvidenceFinder`) — Uses semantic search (PubMedBERT embeddings + FAISS vector index) to find the most relevant NICE guideline passages for each query.
+4. **Compliance Auditor Agent** (`ComplianceAuditorAgent`) — Compares documented clinical decisions against retrieved guidelines using an LLM, producing per-diagnosis adherence scores on a 5-level scale (-2 to +2) with confidence scores and NICE guideline citations, plus a normalised aggregate score (0.0 to 1.0).
 
 ### The Data
 
@@ -269,7 +269,7 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 | **Pipeline Orchestration** | Custom pipeline (not LangGraph) | LangGraph adds complexity without proportional benefit for a linear 4-step pipeline. Simple, testable functions are better. |
 | **Medical Coding** | Rule-based regex + LLM fallback | Two-tier SNOMED categoriser: regex patterns handle 84% of concepts, LLM classifies the remaining 16% in batches of 50. Categories persisted to DB — classified once, never repeated. No FHIR server needed. |
 | **Query Generation** | Templates + LLM + defaults | Three-tier: hand-crafted templates for ~15 common MSK conditions, LLM for rare diagnoses, generic defaults as fallback. Templates optimised for PubMedBERT similarity. |
-| **Guideline Scoring** | LLM with structured prompt | Binary per-diagnosis scoring (+1 adherent / -1 non-adherent) via LLM (temperature=0). +1 if ANY relevant action taken (referral, treatment, investigation); -1 only if zero actions or actions contradict guidelines. Benefit-of-the-doubt for sparse coded data. Aggregate = adherent / (adherent + non-adherent), errors excluded. Full details in `docs/learning/08-scorer-agent-explained.md`. |
+| **Guideline Scoring** | LLM with structured prompt | 5-level per-diagnosis scoring via LLM (temperature=0): +2 COMPLIANT, +1 PARTIAL, 0 NOT RELEVANT, -1 NON-COMPLIANT, -2 RISKY. Each score includes confidence (0.0-1.0) and cited NICE guideline text. Benefit-of-the-doubt for sparse coded data. Aggregate = `mean((score + 2) / 4)` normalised to [0.0, 1.0], errors excluded. Backward-compatible with legacy binary (+1/-1) results. Full details in `docs/learning/08-scorer-agent-explained.md`. |
 | **Configuration** | Pydantic Settings | Type-safe, validates on startup, reads from .env files |
 | **Logging** | Python `logging` + `structlog` | Structured JSON logs, correlation IDs, proper levels |
 | **Containerisation** | Docker + Docker Compose | Reproducible environments, one-command setup |
@@ -416,7 +416,36 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - [ ] Write tests
 - [ ] Update learning docs + PROJECT_BIBLE.md
 
-### Phase 8: Polish & Documentation
+### Phase 9: Evaluation Framework & Model Comparison
+- [x] **9a. Model comparison service** — compare two batch jobs (e.g. OpenAI vs Ollama) with Cohen's kappa, Pearson correlation, per-condition adherence deltas
+- [x] **9b. Missing care opportunities** — scorer detects NICE-recommended actions not documented; new `missing_care_opportunities` field + reporting aggregation
+- [ ] **9c. Gold-standard metrics** — confusion matrix, per-class P/R/F1, weighted F1, Cohen's kappa for comparing AI scores vs 120 clinician labels (data pending)
+- [x] **9d. LLM-as-Judge evaluation** — evaluate each agent's output quality using a separate LLM call as judge (no human labels required)
+- [x] **9e. Visualizations/charts** — inline SVG charts in HTML report (score distribution bar chart, compliance donut, per-condition bars)
+
+### Phase 10a: Retriever Relevance Filtering
+- [x] **Post-retrieval relevance filter** — two-layer filter (title keyword exclusion + L2 distance threshold) to remove irrelevant guidelines before they reach the scorer
+- [x] **Configurable similarity threshold** — `retriever_min_similarity` setting (default 1.2 L2 distance)
+- [ ] **Re-run batches** — validate improvement by running OpenAI + Ollama batches and comparing agreement rates
+
+### Phase 10b: Comprehensive Evaluation Endpoints
+- [x] **System-level metrics** — `GET /evaluation/system-metrics` — score class distribution (+2 to -2), adherence rate, confidence stats (mean/median/min/max/std), per-class counts, error rate
+- [x] **Cross-model classification** — `GET /evaluation/cross-model-metrics` — 5×5 confusion matrix, per-class P/R/F1, 5-class & 3-class Cohen's kappa, exact-match accuracy, AUROC (trapezoidal rule), agreement rate, Pearson correlation
+- [x] **Extractor metrics from DB** — `GET /evaluation/extractor-metrics` — evaluates SNOMED categorisation quality using rules as ground truth, per-category P/R/F1, no LLM needed
+- [x] **Full agent evaluation** — `POST /evaluation/evaluate/agents` — runs pipeline on sample patients, evaluates all 4 agents including retriever IR metrics (Precision@k, nDCG, MRR)
+- [x] **AUROC implementation** — trapezoidal rule (~30 lines), no sklearn dependency, binarized adherent vs non-adherent using confidence scores
+- [x] **Retriever IR metrics** — `evaluate_retrieval_ir()` with per-guideline LLM-as-Judge ratings, Precision@k, nDCG@k, MRR
+- [x] **Comparison chart SVGs** — confusion matrix heatmap, grouped bar chart (score distribution), paired donut charts (compliance)
+
+### Phase 10c: Comparison HTML Report & Cross-Model Judging
+- [x] **Comparison HTML report** — `GET /reports/export/comparison-html` generates self-contained HTML with all evaluation data: system metrics, charts, confusion matrix, P/R/F1, extractor quality, missing care, per-patient comparison
+- [x] **LLM-as-Judge scorer eval section** — scorer quality table with both judges (GPT-4o-mini + mistral-small) × both models
+- [x] **Agent-level evaluation section** — query relevance/coverage, retriever IR (P@k, nDCG, MRR), scorer quality from pipeline run
+- [x] **Cross-model judging** — each model's output judged by both LLMs for cross-validation (eliminates self-judging bias)
+- [x] **Fixed `run_agent_evaluation` bug** — was missing `embedder` and `vector_store` args to `AuditPipeline`
+- [x] **All evaluation results generated** — scorer eval (4 combinations), agent eval (2 judges), saved to `exports/supervisor-report/`
+
+### Phase 10: Polish & Documentation
 - [ ] Performance optimisation (concurrent API calls, further caching — batch embeddings already done in retriever)
 - [ ] Complete all learning documentation
 - [ ] Complete README with full setup/run/test/deploy instructions
@@ -519,6 +548,167 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - ✅ `GET /api/v1/reports/export/csv` — downloadable CSV file (one row per diagnosis per patient) (2026-03-03)
 - ✅ `GET /api/v1/reports/export/html` — self-contained HTML report with dashboard stats, condition breakdown, per-patient detail cards (2026-03-03)
 - ✅ Tests — 234/234 passing (+12 new export tests: 5 CSV + 7 HTML) (2026-03-03)
+
+### Phase 8: Supervisor Feedback Implementation ✅ COMPLETE
+
+**Agent Renaming (Phase 8a)** — MSK-specific agent names per supervisor feedback:
+- ✅ `ExtractorAgent` → `ConsultationInsightAgent` in `src/agents/extractor.py` (2026-03-10)
+- ✅ `QueryAgent` → `AuditQueryGenerator` in `src/agents/query.py` (2026-03-10)
+- ✅ `RetrieverAgent` → `GuidelineEvidenceFinder` in `src/agents/retriever.py` (2026-03-10)
+- ✅ `ScorerAgent` → `ComplianceAuditorAgent` in `src/agents/scorer.py` (2026-03-10)
+- ✅ Updated all imports in `pipeline.py` and all test files (2026-03-10)
+- ✅ No backward-compat aliases — clean rename (2026-03-10)
+
+**5-Level Graded Scoring (Phase 8b)** — replaces binary +1/-1 with clinically nuanced scale:
+- ✅ New `AuditJudgement` IntEnum: -2 RISKY, -1 NON-COMPLIANT, 0 NOT RELEVANT, +1 PARTIAL, +2 COMPLIANT (2026-03-10)
+- ✅ `DiagnosisScore` now includes: `judgement`, `confidence` (0.0-1.0), `cited_guideline_text` (direct NICE quote) (2026-03-10)
+- ✅ `ScoringResult` has 5 per-level counters + backward-compat `adherent_count`/`non_adherent_count` properties (2026-03-10)
+- ✅ New aggregate score formula: `mean((score + 2) / 4)` maps [-2,+2] to [0.0,1.0] (2026-03-10)
+- ✅ Completely rewritten `SCORING_PROMPT` with 5-level instructions, confidence, and citation requirements (2026-03-10)
+- ✅ New regex parser handles all 7 fields: score, judgement, confidence, cited_guideline_text, explanation, followed, not_followed (2026-03-10)
+- ✅ `reporting.py` detects old vs new format via `"judgement" in ds` — full backward compatibility (2026-03-10)
+- ✅ `export.py` updated: CSV has new columns (judgement, confidence, cited_guideline_text), HTML has 5-level badges + cited guideline blockquotes (2026-03-10)
+- ✅ API schemas updated: `ConditionBreakdownItem` has 5-level counts, `NonAdherentCase` has judgement/confidence/citation (2026-03-10)
+- ✅ All tests updated for 5-level format (2026-03-10)
+
+**Ollama Local LLM Provider (Phase 8c)** — for patient data processing without external APIs:
+- ✅ `OllamaProvider` in `src/ai/ollama_provider.py` — uses OpenAI SDK with Ollama's compatible endpoint (2026-03-10)
+- ✅ Settings: `ollama_base_url`, `ollama_model`, `ollama_max_tokens`, `ollama_temperature`, `ollama_request_timeout` (2026-03-10)
+- ✅ Factory: `"ollama"` and `"local"` (alias) registered in `_PROVIDERS` dict (2026-03-10)
+- ✅ `embed()` raises clear error — GuidelineGuard uses PubMedBERT for embeddings (2026-03-10)
+- ✅ Tests — 256/256 passing (+22 new: 14 scorer + 8 ollama) (2026-03-10)
+
+### Phase 9: Evaluation Framework 🔄 IN PROGRESS
+
+**Model Comparison Service (Phase 9a) ✅ COMPLETE:**
+- ✅ Added `provider` column to `AuditJob` model — tracks which AI provider (openai, ollama) ran each batch (2026-03-11)
+- ✅ Alembic migration `002_add_job_provider.py` — adds `provider` column to `audit_jobs` table (2026-03-11)
+- ✅ Pipeline auto-sets `provider` on job creation from `settings.ai_provider` (2026-03-11)
+- ✅ `src/services/comparison.py` — full comparison service: loads two jobs, matches patients by pat_id, matches diagnoses by (term, index_date), computes per-patient score diffs, per-condition adherence deltas, Cohen's kappa (3-class binning), Pearson correlation (2026-03-11)
+- ✅ `src/api/routes/evaluation.py` — `GET /api/v1/evaluation/compare?job_a=1&job_b=2` endpoint with full Pydantic schemas (2026-03-11)
+- ✅ Evaluation router registered in `src/main.py` (2026-03-11)
+- ✅ 21 tests in `tests/unit/test_comparison.py` — Cohen's kappa (6), Pearson (6), compare_jobs (9) (2026-03-11)
+
+**Missing Care Opportunities (Phase 9b) ✅ COMPLETE:**
+- ✅ Added `missing_care_opportunities: list[str]` field to `DiagnosisScore` dataclass (2026-03-11)
+- ✅ Updated `SCORING_PROMPT` output format — LLM now outputs "Missing Care Opportunities:" line (2026-03-11)
+- ✅ Added `_MISSING_CARE_PATTERN` regex + parsing in `parse_scoring_response()` (2026-03-11)
+- ✅ Updated `ScoringResult.summary()` to include missing care in JSON output (2026-03-11)
+- ✅ Updated `_NOT_FOLLOWED_PATTERN` regex to stop at `Missing Care Opportunities:` boundary (2026-03-11)
+- ✅ `get_missing_care_summary()` in `src/services/reporting.py` — groups by condition, counts frequency per action (2026-03-11)
+- ✅ `GET /api/v1/evaluation/missing-care` endpoint with `MissingCareResponse` schema (2026-03-11)
+- ✅ CSV export: added `missing_care_opportunities` column (2026-03-11)
+- ✅ HTML export: amber "Missing care" tag on diagnosis cards (2026-03-11)
+- ✅ 12 tests in `tests/unit/test_missing_care.py` — parsing (5), data classes (3), reporting (4) (2026-03-11)
+- ✅ All tests: 289/289 passing (2026-03-11)
+
+**LLM-as-Judge Evaluation (Phase 9d) ✅ COMPLETE:**
+- ✅ `src/services/evaluation.py` — full evaluation service with per-agent evaluation functions (2026-03-11)
+- ✅ Extractor evaluation: weak supervision using SNOMED rules as pseudo-ground-truth — per-category P/R/F1, rule_match_rate (no LLM needed) (2026-03-11)
+- ✅ Query evaluation: LLM-as-Judge rates query relevance (1-5) and coverage (1-5) per diagnosis (2026-03-11)
+- ✅ Retriever evaluation: LLM-as-Judge rates retrieved guideline relevance (1-5) per diagnosis (2026-03-11)
+- ✅ Scorer evaluation: LLM-as-Judge rates reasoning quality, citation accuracy, score calibration (all 1-5) (2026-03-11)
+- ✅ `evaluate_patient()` orchestrator — evaluates all (or selected) agents for a single patient's pipeline result (2026-03-11)
+- ✅ `aggregate_evaluations()` — aggregates per-patient metrics across multiple patients (2026-03-11)
+- ✅ `scoring_from_stored()` — reconstructs `ScoringResult` from stored `details_json` for evaluation without re-running pipeline (2026-03-11)
+- ✅ `POST /api/v1/evaluation/evaluate/scorer/{job_id}` endpoint — evaluates scorer from stored data via LLM judge (2026-03-11)
+- ✅ 23 tests in `tests/unit/test_evaluation.py` — rating parsing (6), extractor (3), query (3), retriever (2), scorer (3), pipeline (2), aggregation (2), stored data (2) (2026-03-11)
+- ✅ All tests: 312/312 passing (2026-03-11)
+
+**Visualizations/Charts (Phase 9e) ✅ COMPLETE:**
+- ✅ `_svg_score_distribution()` — bar chart histogram of patient scores in 5 bins (0-20%, 20-40%, 40-60%, 60-80%, 80-100%), colour-coded red→green (2026-03-11)
+- ✅ `_svg_compliance_donut()` — donut chart for 5-level compliance breakdown (+2/+1/0/-1/-2) with legend, total count in centre (2026-03-11)
+- ✅ `_svg_condition_bars()` — horizontal bar chart of per-condition adherence rates, colour-coded by threshold, auto-truncates long labels (2026-03-11)
+- ✅ Charts integrated into HTML report via `_build_html()` — renders in a 2-column grid (score dist + donut), full-width condition bars below (2026-03-11)
+- ✅ Chart CSS: `.chart-grid`, `.chart-card`, `.chart-full` classes; responsive grid layout (2026-03-11)
+- ✅ Charts only render when data is present — empty reports have no chart section (2026-03-11)
+- ✅ All inline SVG — no JavaScript, no external dependencies, print-friendly (2026-03-11)
+- ✅ `level_counts` dict tracked during HTML generation for donut chart data (2026-03-11)
+- ✅ 14 new tests in `tests/unit/test_export.py` — score distribution (4), compliance donut (4), condition bars (4), HTML integration (2) (2026-03-11)
+- ✅ All tests: 326/326 passing (2026-03-11)
+
+**PNG Chart Export ✅ COMPLETE:**
+- ✅ Added `cairosvg>=2.7.0` to `requirements.txt` — converts SVG to PNG (requires system cairo library) (2026-03-11)
+- ✅ Extracted `_collect_chart_data()` helper — shared DB query + parsing for both HTML report and PNG export (2026-03-11)
+- ✅ `export_charts_to_png(session, output_dir, job_id, dpi)` — generates 3 PNG chart files from audit data (2026-03-11)
+- ✅ `scripts/export_charts.py` — CLI script: `python scripts/export_charts.py --output exports/charts --job-id 1 --dpi 200` (2026-03-11)
+- ✅ Graceful degradation if cairo not installed — `try/except OSError` at import, clear error message (2026-03-11)
+- ✅ 6 new tests (2 chart data + 4 PNG export with mocked cairosvg) — all tests: 332/332 passing (2026-03-11)
+
+**Supervisor Feedback — Remaining Items:**
+- ⬜ Gold-standard metrics framework — confusion matrix, P/R/F1, kappa (Phase 9c — skipped, awaiting 120 clinician labels)
+
+### Phase 10a: Retriever Relevance Filtering ✅ COMPLETE
+
+**Context:** 50-patient batch comparison (OpenAI Job 1 vs Ollama Job 2) revealed 80% of inter-model disagreements caused by FAISS retriever returning irrelevant guidelines (e.g., carpal tunnel → "chest pain" guidelines, foot pain → "diabetic foot" guidelines). Cohen's kappa was 0.43 (moderate); agreement rate 65.9%.
+
+- ✅ Added `retriever_min_similarity: float = 1.2` setting — configurable L2 distance threshold (2026-03-11)
+- ✅ Added `_TOPIC_KEYWORDS` mapping — 13 body-region/condition keyword groups for topic matching (2026-03-11)
+- ✅ Added `_EXCLUDE_TITLE_TERMS` set — 20+ terms to flag obviously irrelevant guidelines (cancer, cardiac, diabetes, pregnancy, etc.) (2026-03-11)
+- ✅ Added `_filter_irrelevant()` method to `GuidelineEvidenceFinder` — two-layer post-retrieval filter: (A) title exclusion + topic overlap check, (B) L2 distance threshold (2026-03-11)
+- ✅ Fallback: if all guidelines filtered, returns single best match to avoid empty context for scorer (2026-03-11)
+- ✅ 18 new tests: 10 helper tests (topic extraction, title exclusion) + 8 integration tests (filtering logic, regression tests for known bad cases) (2026-03-11)
+- ✅ All tests: 350/350 passing (2026-03-11)
+
+### Phase 10b: Comprehensive Evaluation Endpoints ✅ COMPLETE
+
+**Context:** Supervisor feedback (`feedback.docx`) requires demonstrating the system works with concrete metrics and visualizations across both models (OpenAI Job 1, Ollama Job 2). Previous endpoints covered basic comparison and LLM-as-Judge but lacked system-level classification metrics, confusion matrix, extractor evaluation from stored data, retriever IR metrics, confidence statistics, and comparison charts.
+
+**New Service Functions:**
+- ✅ `compute_system_metrics()` in `src/services/reporting.py` — per-job: score class distribution (+2 to -2), adherence rate, confidence stats (mean/median/min/max/std), per-class counts, error rate (2026-03-11)
+- ✅ `compute_cross_model_classification()` in `src/services/comparison.py` — 5×5 confusion matrix, per-class P/R/F1, 5-class & 3-class Cohen's kappa, exact-match accuracy, AUROC, agreement rate, Pearson correlation (2026-03-11)
+- ✅ `_compute_auroc()` in `src/services/comparison.py` — trapezoidal rule AUROC (~30 lines), no sklearn dependency, binarized adherent vs non-adherent using confidence scores (2026-03-11)
+- ✅ `evaluate_extractor_from_db()` in `src/services/evaluation.py` — loads clinical_entries with stored category, compares vs `categorise_by_rules()` ground truth, per-category P/R/F1 (no LLM needed) (2026-03-11)
+- ✅ `evaluate_retrieval_ir()` in `src/services/evaluation.py` — per-guideline LLM-as-Judge ratings, Precision@k, nDCG@k, MRR, mean relevance (2026-03-11)
+- ✅ `run_agent_evaluation()` in `src/services/evaluation.py` — orchestrates full pipeline evaluation: picks random patients, runs pipeline, evaluates all 4 agents including retriever IR metrics (2026-03-11)
+
+**New Comparison Chart SVGs:**
+- ✅ `_svg_confusion_matrix()` in `src/services/export.py` — heatmap grid with green diagonal, blue off-diagonal, cell counts (2026-03-11)
+- ✅ `_svg_comparison_scores()` in `src/services/export.py` — grouped bar chart, two bars per score class, blue/orange colours, legend (2026-03-11)
+- ✅ `_svg_comparison_compliance()` in `src/services/export.py` — paired donut charts side-by-side with shared legend (2026-03-11)
+
+**New API Endpoints:**
+- ✅ `GET /api/v1/evaluation/system-metrics?job_id=N` — `SystemMetricsResponse` schema (2026-03-11)
+- ✅ `GET /api/v1/evaluation/cross-model-metrics?job_a=N&job_b=M` — `CrossModelMetricsResponse` schema (2026-03-11)
+- ✅ `GET /api/v1/evaluation/extractor-metrics?sample_size=N` — `ExtractorMetricsResponse` schema (2026-03-11)
+- ✅ `POST /api/v1/evaluation/evaluate/agents?limit=5` — `AgentEvaluationResponse` schema (2026-03-11)
+
+**Tests:**
+- ✅ 4 new tests in `test_reporting.py` — `TestComputeSystemMetrics` (class distribution, adherence rate, confidence stats, empty job) (2026-03-11)
+- ✅ 8 new tests in `test_comparison.py` — `TestComputeAuroc` (5) + `TestCrossModelClassification` (3) (2026-03-11)
+- ✅ 5 new tests in `test_evaluation.py` — `TestExtractorFromDB` (2) + `TestRetrieverIR` (3) (2026-03-11)
+- ✅ 4 new tests in `test_export.py` — `TestComparisonCharts` (4) (2026-03-11)
+- ✅ All tests: 371/371 passing (2026-03-11)
+
+### Phase 10c: Comparison HTML Report & Cross-Model Judging ✅ COMPLETE
+
+**Context:** Supervisor needs a single shareable file with all evaluation results. LLM-as-Judge scorer evaluation and full agent evaluation results needed to be included alongside system metrics and cross-model comparison.
+
+**Comparison HTML Report:**
+- ✅ `generate_comparison_html()` in `src/services/export.py` — pulls together all evaluation data (system metrics, charts, confusion matrix, P/R/F1, extractor, missing care, per-patient) into one self-contained HTML file (2026-03-11)
+- ✅ `_build_scorer_eval_section()` — renders LLM-as-Judge scorer quality table with 4 scorer×judge combinations (2026-03-11)
+- ✅ `_build_agent_eval_section()` — renders agent-level evaluation results from both judges side-by-side (query, retriever IR, scorer) (2026-03-11)
+- ✅ `GET /api/v1/reports/export/comparison-html` endpoint with optional `include_scorer_eval` parameter (2026-03-11)
+- ✅ `_kappa_label()` helper — human-readable Cohen's kappa interpretation (2026-03-11)
+
+**Cross-Model Judging (scorer eval with both LLMs as judges):**
+- ✅ Scorer eval Job 1 with OpenAI judge: RQ=4.57, CA=4.10, SC=4.48 (21 diagnoses) (2026-03-11)
+- ✅ Scorer eval Job 2 with OpenAI judge: RQ=4.73, CA=3.27, SC=4.67 (15 diagnoses) (2026-03-11)
+- ✅ Scorer eval Job 1 with Ollama judge: RQ=4.48, CA=4.33, SC=4.48 (21 diagnoses) (2026-03-11)
+- ✅ Scorer eval Job 2 with Ollama judge: RQ=4.60, CA=3.47, SC=4.67 (15 diagnoses) (2026-03-11)
+- ✅ Scores consistent across judges — validates judge reliability (2026-03-11)
+
+**Full Agent Evaluation (pipeline re-run + LLM judge):**
+- ✅ Fixed `run_agent_evaluation()` — was missing `embedder` and `vector_store` args to `AuditPipeline.__init__()` (2026-03-11)
+- ✅ Agent eval with OpenAI judge (5 patients): Query rel=5.00/cov=4.31, Retriever P@k=0.453/nDCG=0.790/MRR=0.700, Scorer RQ=4.31/CA=4.38/SC=4.31 (2026-03-11)
+- ✅ Agent eval with Ollama judge (5 patients): Query rel=4.38/cov=3.62, Retriever P@k=0.360/nDCG=0.772/MRR=0.767, Scorer RQ=5.00/CA=5.00/SC=5.00 (2026-03-11)
+
+**Generated Reports (in `exports/supervisor-report/`):**
+- ✅ `comparison-report-full.html` — 38KB self-contained report with all sections (2026-03-11)
+- ✅ JSON files: system metrics (×2), cross-model metrics, comparison, extractor metrics, missing care (×2), scorer evals (×4), agent evals (×2), dashboards (×2)
+- ✅ CSV and HTML per-job reports
+
+- ✅ All tests: 371/371 passing (2026-03-11)
 
 ---
 
@@ -662,31 +852,67 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - Requiring PostgreSQL for tests — adds infrastructure dependency, slows tests, unnecessary for unit-level validation.
 **Reasoning:** In-memory SQLite tests real SQL queries without external dependencies. Tables are created from the same SQLAlchemy models (via `Base.metadata.create_all`), ensuring schema stays in sync. Tests run in <1 second and are robust against implementation refactors.
 
+### Decision 018: 5-level scoring scale over binary (2026-03-10)
+**Context:** Supervisor feedback requested finer-grained scoring. Binary +1/-1 doesn't capture partial compliance or distinguish unsafe care from mere omissions.
+**Choice:** 5-level scale: -2 RISKY, -1 NON-COMPLIANT, 0 NOT RELEVANT, +1 PARTIAL, +2 COMPLIANT. Each score includes confidence (0.0-1.0) and cited NICE guideline text.
+**Alternatives rejected:**
+- 3-level scale (adherent/partial/non-adherent) — doesn't capture safety-critical distinction between non-compliance and risky non-compliance.
+- Continuous 0-1 score — harder for LLMs to produce consistently, less interpretable for clinicians.
+**Reasoning:** The 5 levels map naturally to clinical audit categories. The -2 (RISKY) level flags safety-critical cases that need immediate review. Confidence scores and NICE citations improve transparency and auditability. Backward compatibility is maintained — existing DB records with binary scores are detected via `"judgement" in ds` and handled correctly.
+
+### Decision 019: Ollama via OpenAI-compatible API (2026-03-10)
+**Context:** Supervisor requested local LLM option for patient data processing without external API calls.
+**Choice:** Ollama with OpenAI SDK pointing to `http://localhost:11434/v1`. Registered as `"ollama"` and `"local"` (alias) in the provider factory.
+**Alternatives rejected:**
+- Direct Ollama REST API — would require custom HTTP client code. Ollama's OpenAI-compatible endpoint lets us reuse the openai SDK.
+- LlamaCpp / vLLM — more complex setup, Ollama provides simpler one-command model management.
+**Reasoning:** Ollama's OpenAI-compatible endpoint means zero new dependencies — we reuse the existing `openai` SDK. The provider pattern makes switching between OpenAI and Ollama a one-line .env change. Embeddings still use PubMedBERT (not the LLM provider).
+
+### Decision 020: Post-retrieval relevance filter over re-indexing (2026-03-11)
+**Context:** 50-patient comparison (OpenAI vs Ollama) showed 80% of disagreements caused by FAISS retriever returning off-topic guidelines. Ollama correctly detected these (scored 0 NOT RELEVANT); OpenAI masked them by giving credit anyway. Root cause: the 277K-guideline corpus includes oncology, cardiology, etc. — PubMedBERT embeddings lack domain specificity to distinguish MSK from non-MSK.
+**Choice:** Two-layer post-retrieval filter in `_filter_irrelevant()`: (A) title keyword checks — exclude obviously wrong specialties and enforce topic overlap with diagnosis, (B) configurable L2 distance threshold. With fallback to best match if everything is filtered.
+**Alternatives rejected:**
+- Re-index with only MSK guidelines — would lose cross-specialty references (e.g., cardiovascular risk in rheumatoid arthritis). Also requires maintaining a separate filtered dataset.
+- LLM-as-judge pre-filter — too expensive (1 LLM call per retrieved guideline × 5 guidelines × N diagnoses).
+- Re-train embeddings — out of scope, PubMedBERT is good enough for most MSK queries.
+**Reasoning:** Lightweight keyword + threshold filtering catches the obvious mismatches (cancer guidelines for back pain, chest pain guidelines for carpal tunnel) without LLM cost or data pipeline changes. Novel/rare diagnoses that don't match any topic group skip the topic filter to avoid false negatives.
+
 ---
 
 ## 7. Current State Summary
 
-**Date:** 2026-03-02
-**Phase 0:** COMPLETE
-**Phase 1:** COMPLETE — Database, migrations, data import, vector store, 4327 patients + 1656 guidelines loaded
-**Phase 2:** COMPLETE — Extractor Agent with SNOMED categoriser (batched LLM, DB persistence)
-**Phase 3:** COMPLETE — Query Agent with template-based + LLM query generation
-**Phase 4:** COMPLETE — Retriever Agent with PubMedBERT embeddings + FAISS search
-**Phase 5:** COMPLETE — Scorer Agent with LLM-based guideline adherence scoring
-**Phase 6:** COMPLETE — Pipeline Integration with REST API
-**Phase 7a:** COMPLETE — Reporting Endpoints (4 analytics endpoints + service layer)
+**Date:** 2026-03-11
+**Phase 0-7a:** COMPLETE — Full pipeline + reporting + exports
+**Phase 8:** COMPLETE — Supervisor Feedback (agent renaming, 5-level scoring, Ollama)
+**Phase 9:** COMPLETE — Evaluation Framework (9a Model Comparison ✅, 9b Missing Care ✅, 9d LLM-as-Judge ✅, 9e Visualizations ✅, 9c skipped until clinician labels arrive)
+**Phase 10a:** COMPLETE — Retriever relevance filtering (post-retrieval title exclusion + topic matching + L2 threshold)
+**Phase 10b:** COMPLETE — Comprehensive evaluation endpoints: system metrics, cross-model classification (confusion matrix, P/R/F1, AUROC, 5-class kappa), extractor metrics from DB, full agent evaluation with retriever IR (Precision@k, nDCG, MRR), 3 comparison chart SVGs
+**Phase 10c:** COMPLETE — Comparison HTML report with LLM-as-Judge results (cross-model judging: each model judged by both GPT-4o-mini and mistral-small), full agent evaluation results, all saved to `exports/supervisor-report/`
 
-**What was done in Phase 7a:**
-- Reporting service: `src/services/reporting.py` with 4 public analytics functions + 1 shared query helper
-- Dashboard stats: total audited/failed, mean/median/min/max adherence score, failure rate (SQL aggregation)
-- Condition breakdown: per-diagnosis adherence rates from details_json, with min_count filter and sort options
-- Non-adherent cases: paginated list of score=-1 diagnoses with explanations for clinical review
-- Score distribution: histogram of patient-level overall_score with configurable bins
-- Report API: `src/api/routes/reports.py` with 4 GET endpoints + Pydantic response schemas
-- All endpoints accept optional `?job_id=N` to scope to a specific batch run
-- Added `aiosqlite==0.20.0` for async in-memory SQLite testing
-- 216 unit tests passing (up from 190 in Phase 6, +26 new reporting tests)
-- Learning doc: `docs/learning/10-reporting-explained.md`
+**What was done in Phase 9 (so far):**
+
+*Model Comparison Service (9a):*
+- `AuditJob.provider` column tracks which AI provider ran each batch
+- Comparison service reads two jobs' results, matches patients by `pat_id`, matches diagnoses by `(term, index_date)`
+- Computes: per-patient score diffs, per-condition adherence deltas, Cohen's kappa (inter-rater agreement), Pearson correlation
+- `GET /api/v1/evaluation/compare?job_a=1&job_b=2` endpoint — ready for OpenAI vs Ollama comparison once both models have run
+
+*Missing Care Opportunities (9b):*
+- Scorer now outputs "Missing Care Opportunities" — specific NICE-recommended actions not documented in the patient record
+- New `missing_care_opportunities` field in `DiagnosisScore`, parsed from LLM response, included in all outputs (JSON, CSV, HTML)
+- `GET /api/v1/evaluation/missing-care` endpoint groups gaps by condition with frequency counts
+- HTML report shows amber "Missing care" tags on diagnosis cards when gaps are identified
+
+*LLM-as-Judge Evaluation (9d):*
+- Evaluation service (`src/services/evaluation.py`) evaluates each pipeline agent's output quality
+- Extractor: weak supervision via SNOMED rules as pseudo-ground-truth → per-category P/R/F1 + rule_match_rate (no LLM cost)
+- Query generator: LLM-as-Judge rates relevance (1-5) and coverage (1-5) per diagnosis
+- Retriever: LLM-as-Judge rates guideline relevance (1-5) per diagnosis
+- Scorer: LLM-as-Judge rates reasoning quality, citation accuracy, score calibration (all 1-5)
+- `scoring_from_stored()` enables scorer evaluation from stored `details_json` without re-running the pipeline
+- `POST /api/v1/evaluation/evaluate/scorer/{job_id}` endpoint — evaluates scorer from stored batch results
+
+*Tests:* 371/371 passing (up from 256)
 
 **The system now has both pipeline execution and reporting analytics.** Available endpoints:
 ```
@@ -715,13 +941,29 @@ Reports (read path):
 Exports (shareable):
   GET  /api/v1/reports/export/csv             — Download CSV file (one row per diagnosis)
   GET  /api/v1/reports/export/html            — Self-contained HTML report (open in browser)
+  GET  /api/v1/reports/export/comparison-html — Cross-model comparison HTML (all metrics + charts in one file)
+
+Evaluation (Phase 9 + 10b):
+  GET  /api/v1/evaluation/compare             — Compare two batch jobs (job_a, job_b params)
+  GET  /api/v1/evaluation/missing-care        — Missing care opportunities aggregation
+  POST /api/v1/evaluation/evaluate/scorer/{job_id} — LLM-as-Judge scorer evaluation
+  GET  /api/v1/evaluation/system-metrics      — Score class distribution, adherence rate, confidence stats
+  GET  /api/v1/evaluation/cross-model-metrics — Confusion matrix, per-class P/R/F1, AUROC, 5-class kappa
+  GET  /api/v1/evaluation/extractor-metrics   — Extractor SNOMED categorisation P/R/F1 (no LLM needed)
+  POST /api/v1/evaluation/evaluate/agents     — Full 4-agent evaluation with retriever IR metrics (expensive)
 ```
 
-**Key files:**
-- Reporting service: `src/services/reporting.py`
-- Export service: `src/services/export.py`
-- Report API: `src/api/routes/reports.py` (includes export endpoints)
-- Tests: `tests/unit/test_reporting.py`, `tests/unit/test_export.py`
+**Key files (Phase 9 + 10b):**
+- Comparison service: `src/services/comparison.py` (Cohen's kappa, Pearson, per-condition deltas, **+ 5×5 confusion matrix, per-class P/R/F1, AUROC, 5-class kappa**)
+- Evaluation service: `src/services/evaluation.py` (LLM-as-Judge evaluation for all 4 agents, **+ evaluate_extractor_from_db, evaluate_retrieval_ir with IR metrics, run_agent_evaluation orchestrator**)
+- Evaluation routes: `src/api/routes/evaluation.py` (compare + missing care + scorer evaluation **+ system-metrics + cross-model-metrics + extractor-metrics + evaluate-agents endpoints**)
+- Reporting additions: `src/services/reporting.py` (`get_missing_care_summary()`, **+ `compute_system_metrics()` — class distribution, adherence rate, confidence stats**)
+- Scorer changes: `src/agents/scorer.py` (new `missing_care_opportunities` field + prompt + parser)
+- Migration: `migrations/versions/002_add_job_provider.py` (`provider` column on `audit_jobs`)
+- Export visualizations: `src/services/export.py` (SVG chart helpers + `_collect_chart_data()` + `export_charts_to_png()`, **+ `_svg_confusion_matrix()`, `_svg_comparison_scores()`, `_svg_comparison_compliance()`, `generate_comparison_html()`, `_build_scorer_eval_section()`, `_build_agent_eval_section()`, `_kappa_label()`**)
+- Reports routes: `src/api/routes/reports.py` (**+ `GET /export/comparison-html` with optional `include_scorer_eval` flag**)
+- Chart export script: `scripts/export_charts.py` (CLI for saving PNG charts to local folder)
+- Tests: `tests/unit/test_comparison.py` (29), `tests/unit/test_missing_care.py` (12), `tests/unit/test_evaluation.py` (28), `tests/unit/test_export.py` (36), `tests/unit/test_reporting.py` (+4 system metrics)
 
 **Post-Phase 7a crash fixes (2026-03-02):**
 
@@ -760,7 +1002,7 @@ Exports (shareable):
 - `src/services/snomed_categoriser.py` — removed 'other' from categories, updated LLM prompts, added 10 new rule patterns
 - `src/agents/extractor.py` — fallback default changed from 'other' to 'administrative'
 - `src/agents/query.py` — entry-level dedup by (term, index_date) + term-level query cache across episodes
-- `src/agents/retriever.py` — entry-level dedup by (term, index_date) + term-level retrieval cache across episodes
+- `src/agents/retriever.py` — entry-level dedup by (term, index_date) + term-level retrieval cache across episodes; **Phase 10a:** post-retrieval relevance filter (`_filter_irrelevant()`) with topic keyword mapping, title exclusion, and L2 distance threshold
 - `src/agents/scorer.py` — entry-level dedup by (term, index_date), eliminates duplicate entries in reports; scoring prompt rewritten for sparse coded data; regex parser fixed for bracket format `[+1]`
 - `tests/unit/test_scorer.py` — added `test_parse_score_with_square_brackets`
 - `src/services/export.py` — CSV and HTML report generation service
@@ -768,14 +1010,24 @@ Exports (shareable):
 
 **Blockers:** None.
 
-**Next session should start with:** Phase 7b — Gold-Standard Validation
-1. Import gold-standard audit data (120 cases manually scored by clinicians)
-2. Run our pipeline against those 120 patients
-3. Compare AI scores vs human auditor scores
-4. Generate accuracy/agreement metrics (Cohen's kappa, etc.)
-5. Add `get_validation_metrics()` to reporting service + new endpoint
-6. Write tests
-7. Update learning docs + PROJECT_BIBLE.md
+**Next steps:**
+1. ~~Phase 9e: Visualizations~~ ✅ — inline SVG charts in HTML reports
+2. ~~PNG chart export~~ ✅ — `scripts/export_charts.py` saves charts as PNG files
+3. ~~Provider-aware skip_audited~~ ✅ — `skip_audited=true` now scopes to current `AI_PROVIDER`, so switching OpenAI→Ollama won't skip patients
+4. ~~Phase 10a: Retriever relevance filter~~ ✅ — post-retrieval filtering for irrelevant guidelines
+5. ~~Re-run OpenAI + Ollama batches~~ ✅ — Job 1 (OpenAI, 50 patients), Job 2 (Ollama, 50 patients) completed
+6. ~~Phase 10b: Comprehensive evaluation endpoints~~ ✅ — system metrics, cross-model classification, extractor metrics, full agent evaluation, comparison charts
+
+**Multi-provider hardening (2026-03-11):**
+- Health check readiness endpoint (`/health/ready`) made provider-aware — checks appropriate API key per provider (OpenAI → `openai_api_key`, Anthropic → `anthropic_api_key`, Ollama/Local → no key needed)
+- HTML report patient ID truncation fixed — was showing `{pat_id[:12]}...`, now shows full UUID
+- Confirmed `"local"` is an alias for `"ollama"` in AI factory — both create `OllamaProvider`
+- All API endpoints verified provider-agnostic via factory pattern
+
+7. ~~Run new evaluation endpoints against stored Job 1 & Job 2 data to collect results for supervisor report~~ ✅ — All results generated and saved to `exports/supervisor-report/`
+8. ~~Generate comparison HTML report with all evaluation data~~ ✅ — `comparison-report-full.html` (38KB)
+9. Phase 9c: Gold-standard metrics (when 120 clinician labels arrive)
+10. Re-run batches after retriever relevance filter to validate improvement
 
 ---
 
@@ -790,8 +1042,9 @@ Exports (shareable):
 - **PubMedBERT requires ~2GB RAM:** The embedding model (~440MB on disk) needs significant memory. Loaded at startup via lifespan handler so it's ready before any HTTP request arrives.
 - **Embedder tests use bert-tiny model:** Real PubMedBERT (~440MB) too large for unit tests. Tests use `prajjwal1/bert-tiny` (17MB, 128-dim) — same encoding logic, different weights. Integration tests with real model needed.
 - **Scorer tests use mock LLM:** Unit tests mock the AI provider. Integration tests with a real LLM needed to validate prompt quality and parsing against actual LLM outputs.
-- **Binary scoring only:** Current scoring is +1/-1 (adherent/non-adherent). No partial adherence score. The paper uses the same binary scheme, but nuanced scoring could improve accuracy.
-- **Sparse coded data bias:** Most patients have only diagnoses + referrals in coded SNOMED data, no explicit treatments. Scoring prompt is tuned to give benefit of the doubt (referral alone = +1), but this may over-count adherence for patients where a referral was made for an unrelated condition. Gold-standard validation (Phase 7b) will quantify this.
+- **~~Binary scoring only~~ RESOLVED (Phase 8b):** Scoring upgraded to 5-level scale (-2 to +2) with confidence and NICE citations. Legacy binary results remain readable via backward-compat detection.
+- **Sparse coded data bias:** Most patients have only diagnoses + referrals in coded SNOMED data, no explicit treatments. Scoring prompt is tuned to give benefit of the doubt (referral alone scores positively), but this may over-count adherence for patients where a referral was made for an unrelated condition. Gold-standard validation (Phase 7b) will quantify this.
+- **~~Retriever returns irrelevant guidelines~~ RESOLVED (Phase 10a):** FAISS retriever returned off-topic guidelines (e.g., chest pain for carpal tunnel, diabetic foot for generic foot pain) due to PubMedBERT embedding imprecision across the 277K-guideline corpus. 80% of OpenAI vs Ollama disagreements were caused by this. Fixed with two-layer post-retrieval filter: title keyword exclusion + body-region topic matching + L2 distance threshold (default 1.2). Needs re-validation with fresh batch runs.
 
 ---
 

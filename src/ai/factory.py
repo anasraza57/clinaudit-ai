@@ -27,12 +27,18 @@ def _create_openai_provider() -> AIProvider:
     return OpenAIProvider()
 
 
+def _create_ollama_provider() -> AIProvider:
+    from src.ai.ollama_provider import OllamaProvider
+    return OllamaProvider()
+
+
 # Registry of available providers.
 # Keys must match the AI_PROVIDER env var values.
 _PROVIDERS: dict[str, callable] = {
     "openai": _create_openai_provider,
+    "ollama": _create_ollama_provider,
+    "local": _create_ollama_provider,  # Alias for ollama
     # "anthropic": _create_anthropic_provider,  # Add when needed
-    # "local": _create_local_provider,          # Add when needed
 }
 
 

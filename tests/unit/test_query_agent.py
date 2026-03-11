@@ -17,7 +17,7 @@ from src.agents.extractor import (
 )
 from src.agents.query import (
     DiagnosisQueries,
-    QueryAgent,
+    AuditQueryGenerator,
     QueryResult,
     _find_template,
     generate_default_queries,
@@ -219,17 +219,17 @@ class TestDefaultQueries:
         assert any("NICE" in q for q in queries)
 
 
-# ── QueryAgent tests (no LLM) ────────────────────────────────────────
+# ── AuditQueryGenerator tests (no LLM) ────────────────────────────────────────
 
 
-class TestQueryAgentNoLLM:
+class TestAuditQueryGeneratorNoLLM:
     """Test the Query Agent without an LLM provider."""
 
     @pytest.mark.asyncio
     async def test_generates_queries_for_template_diagnosis(
         self, single_episode_extraction
     ):
-        agent = QueryAgent(ai_provider=None)
+        agent = AuditQueryGenerator(ai_provider=None)
         result = await agent.generate_queries(single_episode_extraction)
 
         assert isinstance(result, QueryResult)
@@ -242,7 +242,7 @@ class TestQueryAgentNoLLM:
     async def test_generates_queries_for_multiple_episodes(
         self, multi_episode_extraction
     ):
-        agent = QueryAgent(ai_provider=None)
+        agent = AuditQueryGenerator(ai_provider=None)
         result = await agent.generate_queries(multi_episode_extraction)
 
         assert result.total_diagnoses == 2
@@ -258,7 +258,7 @@ class TestQueryAgentNoLLM:
     async def test_no_diagnoses_produces_empty_result(
         self, no_diagnosis_extraction
     ):
-        agent = QueryAgent(ai_provider=None)
+        agent = AuditQueryGenerator(ai_provider=None)
         result = await agent.generate_queries(no_diagnosis_extraction)
 
         assert result.total_diagnoses == 0
@@ -269,7 +269,7 @@ class TestQueryAgentNoLLM:
     async def test_unusual_diagnosis_uses_defaults(
         self, unusual_diagnosis_extraction
     ):
-        agent = QueryAgent(ai_provider=None)
+        agent = AuditQueryGenerator(ai_provider=None)
         result = await agent.generate_queries(unusual_diagnosis_extraction)
 
         assert result.total_diagnoses == 1
@@ -280,7 +280,7 @@ class TestQueryAgentNoLLM:
 
     @pytest.mark.asyncio
     async def test_summary_output(self, single_episode_extraction):
-        agent = QueryAgent(ai_provider=None)
+        agent = AuditQueryGenerator(ai_provider=None)
         result = await agent.generate_queries(single_episode_extraction)
         summary = result.summary()
 
@@ -292,7 +292,7 @@ class TestQueryAgentNoLLM:
 
     @pytest.mark.asyncio
     async def test_all_queries_helper(self, multi_episode_extraction):
-        agent = QueryAgent(ai_provider=None)
+        agent = AuditQueryGenerator(ai_provider=None)
         result = await agent.generate_queries(multi_episode_extraction)
         all_q = result.all_queries()
 
@@ -302,7 +302,7 @@ class TestQueryAgentNoLLM:
 
     @pytest.mark.asyncio
     async def test_index_date_preserved(self, multi_episode_extraction):
-        agent = QueryAgent(ai_provider=None)
+        agent = AuditQueryGenerator(ai_provider=None)
         result = await agent.generate_queries(multi_episode_extraction)
 
         assert result.diagnosis_queries[0].index_date == "2024-01-15"
@@ -310,23 +310,23 @@ class TestQueryAgentNoLLM:
 
     @pytest.mark.asyncio
     async def test_concept_id_preserved(self, single_episode_extraction):
-        agent = QueryAgent(ai_provider=None)
+        agent = AuditQueryGenerator(ai_provider=None)
         result = await agent.generate_queries(single_episode_extraction)
 
         assert result.diagnosis_queries[0].concept_id == "279039007"
 
 
-# ── QueryAgent tests (with mock LLM) ─────────────────────────────────
+# ── AuditQueryGenerator tests (with mock LLM) ─────────────────────────────────
 
 
-class TestQueryAgentWithLLM:
+class TestAuditQueryGeneratorWithLLM:
     """Test the Query Agent with a mock LLM provider."""
 
     @pytest.mark.asyncio
     async def test_template_preferred_over_llm(self, single_episode_extraction):
         """Template matches should not call the LLM."""
         mock_provider = AsyncMock()
-        agent = QueryAgent(ai_provider=mock_provider)
+        agent = AuditQueryGenerator(ai_provider=mock_provider)
         result = await agent.generate_queries(single_episode_extraction)
 
         # Low back pain has a template — LLM should NOT be called
@@ -345,7 +345,7 @@ class TestQueryAgentWithLLM:
             "hallux valgus referral criteria for orthopaedic surgery"
         )
 
-        agent = QueryAgent(ai_provider=mock_provider)
+        agent = AuditQueryGenerator(ai_provider=mock_provider)
         result = await agent.generate_queries(unusual_diagnosis_extraction)
 
         dq = result.diagnosis_queries[0]
@@ -361,7 +361,7 @@ class TestQueryAgentWithLLM:
         mock_provider = AsyncMock()
         mock_provider.chat_simple.side_effect = Exception("API error")
 
-        agent = QueryAgent(ai_provider=mock_provider)
+        agent = AuditQueryGenerator(ai_provider=mock_provider)
         result = await agent.generate_queries(unusual_diagnosis_extraction)
 
         dq = result.diagnosis_queries[0]
@@ -376,7 +376,7 @@ class TestQueryAgentWithLLM:
         mock_provider = AsyncMock()
         mock_provider.chat_simple.return_value = ""
 
-        agent = QueryAgent(ai_provider=mock_provider)
+        agent = AuditQueryGenerator(ai_provider=mock_provider)
         result = await agent.generate_queries(unusual_diagnosis_extraction)
 
         dq = result.diagnosis_queries[0]
@@ -390,7 +390,7 @@ class TestQueryAgentWithLLM:
             "query one\nquery two\nquery three\nquery four\nquery five"
         )
 
-        agent = QueryAgent(ai_provider=mock_provider)
+        agent = AuditQueryGenerator(ai_provider=mock_provider)
         result = await agent.generate_queries(unusual_diagnosis_extraction)
 
         dq = result.diagnosis_queries[0]
@@ -436,7 +436,7 @@ class TestQueryAgentWithLLM:
             "hallux valgus guidelines\nbunion management\nhallux referral"
         )
 
-        agent = QueryAgent(ai_provider=mock_provider)
+        agent = AuditQueryGenerator(ai_provider=mock_provider)
         result = await agent.generate_queries(extraction)
 
         # 2 DiagnosisQueries produced (one per episode)
@@ -479,7 +479,7 @@ class TestQueryAgentWithLLM:
             total_diagnoses=2,
         )
 
-        agent = QueryAgent(ai_provider=None)
+        agent = AuditQueryGenerator(ai_provider=None)
         result = await agent.generate_queries(extraction)
 
         # Only 1 unique (term, date) → only 1 DiagnosisQueries entry

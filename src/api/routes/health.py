@@ -75,16 +75,25 @@ async def readiness_check() -> dict:
     settings = get_settings()
     checks: dict[str, str] = {}
 
-    # Check AI provider configuration
-    if settings.ai_provider == "openai" and settings.openai_api_key:
-        checks["ai_provider"] = "configured"
-    elif settings.ai_provider == "openai":
-        checks["ai_provider"] = "missing_api_key"
+    # Check AI provider configuration — each provider has different requirements
+    provider = settings.ai_provider
+    _KEY_REQUIRED: dict[str, str] = {
+        "openai": "openai_api_key",
+        "anthropic": "anthropic_api_key",
+    }
+
+    if provider in _KEY_REQUIRED:
+        key_attr = _KEY_REQUIRED[provider]
+        if getattr(settings, key_attr, ""):
+            checks["ai_provider"] = f"configured ({provider})"
+        else:
+            checks["ai_provider"] = f"missing_api_key ({provider})"
     else:
-        checks["ai_provider"] = f"configured ({settings.ai_provider})"
+        # Providers without API keys (ollama, local)
+        checks["ai_provider"] = f"configured ({provider})"
 
     # Overall status
-    all_ok = all(v != "missing_api_key" for v in checks.values())
+    all_ok = all("missing_api_key" not in v for v in checks.values())
 
     return {
         "status": "ready" if all_ok else "degraded",

@@ -138,6 +138,50 @@ FastAPI uses these for:
 - **Serialization** — converts Python dicts to proper JSON
 - **Documentation** — Swagger UI shows the exact response shape
 
+## Inline SVG Charts (Phase 9e)
+
+The HTML report now includes **three inline SVG charts** generated server-side in Python. No JavaScript, no external dependencies — the charts are pure SVG elements embedded directly in the HTML.
+
+### Chart Types
+
+1. **Score Distribution Bar Chart** (`_svg_score_distribution`) — Histogram of patient-level adherence scores binned into 5 ranges (0-20%, 20-40%, 40-60%, 60-80%, 80-100%). Bars are colour-coded from red (low) to green (high). Y-axis shows patient counts.
+
+2. **Compliance Donut Chart** (`_svg_compliance_donut`) — Donut/ring chart showing the distribution of 5-level compliance scores (+2 Compliant, +1 Partial, 0 N/R, -1 Non-compliant, -2 Risky) across all diagnoses. Centre shows total diagnosis count. Legend lists each level with its count.
+
+3. **Per-Condition Horizontal Bar Chart** (`_svg_condition_bars`) — Horizontal bars showing adherence rate per diagnosis. Bars are colour-coded by threshold (green ≥70%, amber ≥40%, red <40%). Long condition names are auto-truncated.
+
+### Design Decisions
+
+- **Inline SVG over Chart.js/D3** — No JavaScript means the report works offline, in email clients, and in print. SVG is vector-based so it scales perfectly.
+- **Server-side generation** — Charts are computed at report generation time, not in the browser. This keeps the HTML completely self-contained.
+- **Conditional rendering** — Charts section only appears when there is data. Empty reports render cleanly without blank chart areas.
+- **2-column grid layout** — Score distribution and compliance donut sit side-by-side; condition bars span full width below.
+
+### How It Works
+
+During `generate_html_report()`, the code collects `scores` (patient-level floats) and `level_counts` (dict of compliance levels) as it processes results. These are passed to `_build_html()`, which calls the three chart helpers and embeds the SVG output into the HTML template.
+
+### PNG Export for Reports
+
+For embedding charts in Word/LaTeX reports, the system can export charts as standalone PNG files:
+
+```bash
+# Save charts from all audit data
+DB_HOST=localhost python scripts/export_charts.py --output exports/charts
+
+# Scope to a specific batch job, higher DPI for print
+DB_HOST=localhost python scripts/export_charts.py --output exports/charts --job-id 1 --dpi 300
+```
+
+This produces:
+- `score_distribution.png` — bar chart histogram
+- `compliance_breakdown.png` — compliance donut chart
+- `condition_adherence.png` — per-condition horizontal bars
+
+**Implementation**: `export_charts_to_png()` in `src/services/export.py` reuses the same SVG chart helpers, then converts to PNG via `cairosvg`. The data collection is shared with the HTML report via `_collect_chart_data()` — no duplication.
+
+**Dependencies**: Requires `cairosvg` (Python) + `cairo` system library (`brew install cairo` on macOS). The import is wrapped in `try/except OSError` so the rest of the export module works even without cairo installed.
+
 ## What's Next
 
-Phase 7b will add **gold-standard validation**: importing the 120 manually-audited cases, running our pipeline against them, and computing agreement metrics (Cohen's kappa, accuracy, etc.). This will add a `get_validation_metrics()` function to the reporting service and a new `/api/v1/reports/validation` endpoint — the exact pattern established here.
+Gold-standard validation will be added when the 120 clinician-labeled cases arrive. The framework (`src/services/gold_standard.py`) is already planned: confusion matrix, per-class P/R/F1, weighted kappa, all computed from stored results.

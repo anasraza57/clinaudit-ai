@@ -1,15 +1,15 @@
 """
-Extractor Agent — Stage 1 of the audit pipeline.
+Consultation Insight Agent — Stage 1 of the audit pipeline.
 
 Takes a patient's clinical entries, categorises each using
 SNOMED concept classification, and outputs a structured
 extraction that downstream agents can work with.
 
-The Extractor's job:
+The Consultation Insight Agent's job:
 1. Group clinical entries by index_date (each date = one MSK episode)
 2. Categorise each entry (diagnosis, treatment, referral, etc.)
 3. Identify the primary diagnoses to audit
-4. Return structured data for the Query Agent
+4. Return structured data for the Audit Query Generator
 """
 
 import logging
@@ -89,12 +89,12 @@ class ExtractionResult:
         }
 
 
-class ExtractorAgent:
+class ConsultationInsightAgent:
     """
     Extracts and categorises clinical concepts from patient records.
 
     Usage:
-        agent = ExtractorAgent(ai_provider=provider)
+        agent = ConsultationInsightAgent(ai_provider=provider)
         # Pre-load category mappings for all concepts in the dataset
         await agent.load_categories(all_unique_concepts)
         # Extract for a specific patient

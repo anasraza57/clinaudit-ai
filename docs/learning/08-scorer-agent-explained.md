@@ -1,15 +1,15 @@
-# Scorer Agent Explained
+# Compliance Auditor Agent Explained
 
-## What Does the Scorer Agent Do?
+## What Does the Compliance Auditor Agent Do?
 
-The Scorer Agent is **Stage 4** (final) of the 4-agent pipeline. It takes two inputs:
+The Compliance Auditor Agent (formerly `ComplianceAuditorAgent`, renamed Phase 8a) is **Stage 4** (final) of the 4-agent pipeline. It takes two inputs:
 
-1. **ExtractionResult** (from the Extractor Agent) — what the GP actually did: diagnoses, treatments, referrals, investigations, procedures
-2. **RetrievalResult** (from the Retriever Agent) — what NICE guidelines recommend for each diagnosis
+1. **ExtractionResult** (from the Consultation Insight Agent) — what the GP actually did: diagnoses, treatments, referrals, investigations, procedures
+2. **RetrievalResult** (from the Guideline Evidence Finder) — what NICE guidelines recommend for each diagnosis
 
-It combines them and asks an LLM to evaluate whether the documented clinical care follows the guidelines, producing a per-diagnosis adherence score (+1 adherent / -1 non-adherent) with explanations.
+It combines them and asks an LLM to evaluate whether the documented clinical care follows the guidelines, producing a per-diagnosis score on a **5-level scale** (-2 to +2) with confidence scores, NICE guideline citations, and explanations.
 
-Think of it as a virtual clinical auditor who reads the patient's file, reads the relevant guidelines, and gives a verdict on each diagnosis.
+Think of it as a virtual clinical auditor who reads the patient's file, reads the relevant guidelines, and gives a graded verdict on each diagnosis.
 
 ## Cyprian's Original Implementation
 
@@ -164,48 +164,35 @@ That's two functions in sequence. LangGraph's graph abstractions add complexity 
 ### Architecture Overview
 
 ```
-ExtractionResult (from Extractor)
+ExtractionResult (from Consultation Insight Agent)
         ↓
-RetrievalResult (from Retriever)
+RetrievalResult (from Guideline Evidence Finder)
         ↓
-   ScorerAgent.score()
+   ComplianceAuditorAgent.score()
         ↓
    For each diagnosis:
      1. Look up the patient's episode (treatments, referrals, investigations)
      2. Look up the retrieved guidelines
      3. Format the scoring prompt
      4. Call the LLM (temperature=0 for deterministic scoring)
-     5. Parse the structured response
+     5. Parse the structured response (score, judgement, confidence, citation)
         ↓
    ScoringResult (per-diagnosis scores + aggregate)
 ```
 
 ### The Scoring Rubric
 
-The system uses **binary scoring** per diagnosis: **+1 (adherent)** or **-1 (non-adherent)**. This matches the approach used in the original GuidelineGuard paper (Shahriyear, 2024).
+The system uses a **5-level grading scale** per diagnosis (upgraded from binary +1/-1 in Phase 8b). Each score also includes a **confidence** value (0.0-1.0) and a **cited NICE guideline** quote.
 
 #### What Each Score Means
 
-| Score | Meaning | When It's Given |
-|-------|---------|-----------------|
-| **+1 (Adherent)** | The GP's documented management broadly follows NICE guidelines | At least one appropriate clinical action was taken |
-| **-1 (Non-adherent)** | The GP's documented management does not follow NICE guidelines | No relevant actions taken, or actions contradict guidelines |
-
-#### When a Diagnosis Scores +1 (Adherent)
-
-A diagnosis receives +1 if **any** of the following are true:
-
-1. **A relevant referral was made** — e.g., referral to physiotherapy, orthopaedics, rheumatology, or "further care". For most MSK conditions, NICE guidelines recommend physiotherapy as first-line management. A physio referral alone is sufficient for +1.
-2. **Appropriate treatments were prescribed** — e.g., NSAIDs for low back pain, analgesics for osteoarthritis, corticosteroid injection for tennis elbow.
-3. **Relevant investigations were ordered** — e.g., X-ray for suspected fracture, blood tests for inflammatory markers in suspected gout.
-4. **The documented actions show reasonable clinical engagement** — the GP took some action that aligns with what the guidelines recommend.
-
-#### When a Diagnosis Scores -1 (Non-adherent)
-
-A diagnosis receives -1 if **either** of the following are true:
-
-1. **No actions at all** — the diagnosis is documented but there are NO treatments, NO referrals, AND NO investigations. The GP identified the condition but the coded record shows no management whatsoever.
-2. **Actions contradict guidelines** — e.g., prescribing opioids as first-line treatment for chronic low back pain (NICE specifically recommends against this).
+| Score | Judgement | Meaning | When It's Given |
+|-------|-----------|---------|-----------------|
+| **+2 (COMPLIANT)** | Fully follows guidelines | Multiple recommended actions documented | Appropriate treatment AND referral AND investigation present |
+| **+1 (PARTIALLY COMPLIANT)** | Minor gaps | Some guideline-aligned actions, minor omissions | Referral made but first-line treatment absent from coded record |
+| **0 (NOT RELEVANT)** | Cannot assess | Guideline not applicable or data too sparse | No meaningful basis for comparison |
+| **-1 (NON-COMPLIANT)** | Major deviation | No documented management at all | No treatments, referrals, or investigations; or clear deviation without safety risk |
+| **-2 (RISKY NON-COMPLIANT)** | Safety risk | Actions contradict guidelines with potential harm | Contraindicated treatment prescribed, or safety-critical red flag missed |
 
 #### The "Benefit of the Doubt" Principle
 
@@ -213,33 +200,34 @@ The scorer is designed to be **generous rather than punitive**, for good reason:
 
 - **Coded records are incomplete.** Our data comes from SNOMED-coded clinical entries. Many GP actions don't generate SNOMED codes: verbal advice ("take paracetamol, rest, apply ice"), over-the-counter recommendations, lifestyle guidance, and clinical reasoning are all absent. Prescriptions may be in a separate prescribing system. The absence of a coded treatment does NOT mean no treatment was given.
 - **GPs exercise clinical judgment.** A GP may have valid reasons for deviating from guidelines that aren't captured in the record (e.g., patient has a contraindication, already tried the recommended treatment, prefers a different approach).
-- **Referrals count as management.** A referral to physiotherapy, a specialist, or "further care" IS a form of management — it means the GP has taken action and directed the patient to appropriate next steps.
+- **Referrals count as management.** A referral to physiotherapy, a specialist, or "further care" IS a form of management — it means the GP has taken action and directed the patient to appropriate next steps. A referral alone warrants at least +1.
 
 #### Aggregate Score
 
-The patient-level aggregate score is the **proportion of adherent diagnoses**:
+The patient-level aggregate score is a **normalised mean** of all scored diagnoses:
 
 ```
-aggregate_score = adherent_count / (adherent_count + non_adherent_count)
+aggregate_score = mean((score + 2) / 4)   for each non-error diagnosis
 ```
 
-- Range: 0.0 (all diagnoses non-adherent) to 1.0 (all adherent)
-- Diagnoses that errored during scoring are **excluded** from the aggregate — they don't count for or against the patient
-- A patient with 3 diagnoses scoring +1, +1, -1 gets an aggregate of 0.667
+This maps the [-2, +2] scale to [0.0, 1.0]:
+- -2 → 0.0, -1 → 0.25, 0 → 0.5, +1 → 0.75, +2 → 1.0
+- Diagnoses that errored during scoring are **excluded** from the aggregate
+- A patient with 3 diagnoses scoring +2, +1, -1 gets: mean((4/4 + 3/4 + 1/4)) = mean(1.0 + 0.75 + 0.25) = 0.667
 
 #### Real Examples from Our Dataset
 
-| Patient | Diagnosis | Actions | Score | Why |
-|---------|-----------|---------|-------|-----|
-| 01aa45a7 | Hip pain | Referral to physiotherapist | **+1** | Physio referral is first-line NICE management for hip pain |
-| 01fde560 | Elbow joint pain | None | **-1** | No treatments, no referrals, no investigations at all |
-| 001e1fe6 | Finger pain | None | **-1** | Diagnosis only, no clinical actions documented |
-| 00abc394 | Neck pain | Referral for further care | **+1** | Referral demonstrates clinical engagement |
-| 0381f1e4 | Shoulder pain | Referral to physiotherapist, hormone treatments (unrelated) | **+1** | Physio referral is relevant and appropriate |
+| Patient | Diagnosis | Actions | Score | Judgement | Why |
+|---------|-----------|---------|-------|-----------|-----|
+| 01aa45a7 | Hip pain | Referral to physiotherapist | **+1** | PARTIAL | Physio referral is appropriate but no other coded actions |
+| 01fde560 | Elbow joint pain | None | **-1** | NON-COMPLIANT | No treatments, no referrals, no investigations at all |
+| 001e1fe6 | Finger pain | None | **-1** | NON-COMPLIANT | Diagnosis only, no clinical actions documented |
+| 00abc394 | Neck pain | Referral + NSAIDs + exercises | **+2** | COMPLIANT | Multiple guideline-recommended actions present |
+| 0381f1e4 | Shoulder pain | Opioids prescribed (contraindicated) | **-2** | RISKY | Guidelines advise against opioids for this condition |
 
 ### The Scoring Prompt
 
-The prompt is the most important part of the Scorer. It's what the LLM sees when evaluating adherence. Here's its structure:
+The prompt is the most important part of the Compliance Auditor. It's what the LLM sees when evaluating adherence. Here's its structure (updated in Phase 8b for 5-level scoring):
 
 ```
 You are a clinical audit expert evaluating whether a GP's management of a
@@ -265,88 +253,102 @@ Evaluate whether the documented clinical actions follow the NICE guidelines
 for this diagnosis.
 
 ## Important Rules — READ CAREFULLY
-**About the data:** These are SNOMED-coded clinical records, NOT free-text
-notes. Many GP actions are NOT captured in coded data — verbal advice,
-over-the-counter recommendations, prescriptions from separate systems, and
-clinical reasoning are typically absent.
+**About the data:** These are SNOMED-coded clinical records, NOT free-text notes.
 
-**Scoring guidance:**
-- Score +1 (ADHERENT) if ANY of the following are true:
-  - A relevant referral was made (referrals ARE a form of management)
-  - Appropriate treatments were prescribed
-  - Relevant investigations were ordered
-  - The documented actions show reasonable clinical engagement
-- Score -1 (NON-ADHERENT) only if:
-  - NO treatments, NO referrals, AND NO investigations at all
-  - Actions clearly CONTRADICT the guidelines
+**Scoring guidance — use this 5-level scale:**
+- Score +2 (COMPLIANT): Actions clearly and fully align with NICE guidelines
+- Score +1 (PARTIALLY COMPLIANT): Some aligned actions but with minor gaps
+- Score  0 (NOT RELEVANT): Guideline not applicable or data too sparse
+- Score -1 (NON-COMPLIANT): No documented management or clear deviation
+- Score -2 (RISKY NON-COMPLIANT): Actions contradict guidelines with patient harm risk
+
+**General principles:**
 - Give the benefit of the doubt
-- A physiotherapy or specialist referral alone is sufficient for +1
+- A physio/specialist referral alone warrants at least +1
 - Base evaluation ONLY on provided guidelines, not general medical knowledge
+- You MUST cite the specific guideline text that informed your judgement
 
 ## Output Format
-Score: +1 or -1
+Score: -2, -1, 0, +1, or +2
+Judgement: COMPLIANT, PARTIALLY COMPLIANT, NOT RELEVANT, NON-COMPLIANT, or RISKY NON-COMPLIANT
+Confidence: a number between 0.0 and 1.0
+Cited Guideline: a direct quote from the NICE guideline text, or "None"
 Explanation: 2-3 sentence explanation
 Guidelines Followed: comma-separated list or "None"
 Guidelines Not Followed: comma-separated list or "None"
+
+Example:
+Score: +1
+Judgement: PARTIALLY COMPLIANT
+Confidence: 0.75
+Cited Guideline: "Consider referral to physiotherapy. Do not offer opioids."
+Explanation: The GP referred the patient to physiotherapy which is recommended.
+Guidelines Followed: Physiotherapy referral
+Guidelines Not Followed: Exercise therapy advice, NSAID prescription
 ```
 
 Key improvements over Cyprian's prompt:
+- **5-level grading scale** — captures nuance that binary +1/-1 could not (partial compliance, safety-critical non-compliance)
+- **Confidence scores** — LLM reports how certain it is (0.0-1.0), useful for flagging borderline cases
+- **NICE guideline citations** — direct quotes from the source text, improving transparency and auditability
 - **Includes referrals, investigations, and procedures** — not just treatments
 - **Includes full guideline text** — up to 2,000 characters (not 500)
 - **Multiple guidelines** — includes all top-K retrieved guidelines, sorted by relevance
-- **Structured output format** — explicitly asks for guidelines followed/not followed
+- **Structured 7-field output format** — score, judgement, confidence, cited guideline, explanation, followed, not followed
 - **"Benefit of the doubt" rule** — prevents over-penalisation for reasonable clinical judgment
 - **"ONLY on provided guidelines" rule** — prevents the LLM from using its own medical knowledge
-- **Sparse data context** — explains that these are SNOMED-coded records where many GP actions aren't captured, so absence of coded treatments ≠ no treatment
-- **Referral-as-management** — explicitly states that referrals to physiotherapy/specialists are sufficient for +1 (first-line NICE management for most MSK conditions)
-- **Example output** — includes a concrete example to prevent the LLM from misinterpreting format placeholders as literal brackets
+- **Sparse data context** — explains that these are SNOMED-coded records where many GP actions aren't captured
+- **Example output** — includes a concrete example to prevent the LLM from misinterpreting the format
 
 ### Response Parsing
 
-The LLM returns a structured response that we parse with regex:
+The LLM returns a 7-field structured response that we parse with regex. Updated in Phase 8b for the 5-level scale:
 
 ```python
-_SCORE_PATTERN = re.compile(r"Score:\s*\[?([+-]?1)\]?", re.IGNORECASE)
+_SCORE_PATTERN = re.compile(r"Score:\s*\[?([+-]?[012])\]?", re.IGNORECASE)
+_JUDGEMENT_PATTERN = re.compile(r"Judgement:\s*(.+)", re.IGNORECASE)
+_CONFIDENCE_PATTERN = re.compile(r"Confidence:\s*([\d.]+)", re.IGNORECASE)
+_CITED_GUIDELINE_PATTERN = re.compile(
+    r"Cited Guideline:\s*(.+?)(?=\nExplanation:|\Z)",
+    re.IGNORECASE | re.DOTALL,
+)
 _EXPLANATION_PATTERN = re.compile(
     r"Explanation:\s*(.+?)(?=\nGuidelines Followed:|\Z)",
     re.IGNORECASE | re.DOTALL,
 )
-_FOLLOWED_PATTERN = re.compile(
-    r"Guidelines Followed:\s*(.+?)(?=\nGuidelines Not Followed:|\Z)",
-    re.IGNORECASE | re.DOTALL,
-)
-_NOT_FOLLOWED_PATTERN = re.compile(
-    r"Guidelines Not Followed:\s*(.+?)$",
-    re.IGNORECASE | re.DOTALL,
-)
+# ... plus _FOLLOWED_PATTERN and _NOT_FOLLOWED_PATTERN
 ```
 
 Note the `re.IGNORECASE` flag — this fixes Cyprian's case-sensitivity bug. Whether the LLM outputs "Score:", "score:", or "SCORE:", we'll catch it.
 
-The `\[?` and `\]?` in the score pattern handle LLMs that output `Score: [+1]` with brackets (copying the format from prompt templates literally). Without this, the regex fails to match and ALL scores default to -1 — a critical parsing bug we discovered when all 49 initial patients scored 0.0 adherence.
+The score pattern `[+-]?[012]` now accepts values from -2 to +2. The `\[?` and `\]?` handle LLMs that output brackets around the score.
 
-The parser also handles:
-- Missing plus sign (`1` treated same as `+1`)
-- Square brackets around score (`[+1]` and `[-1]`)
-- Multiline explanations
-- "None" for empty lists
-- Extra whitespace
-- Default to -1 if parsing fails entirely (conservative default)
+The parser handles all 7 fields:
+- **Score**: -2, -1, 0, +1, +2 (with optional brackets/plus sign)
+- **Judgement**: matched to `JUDGEMENT_LABELS` dict, falls back to label lookup by score
+- **Confidence**: float 0.0-1.0, clamped to range, defaults to 0.0
+- **Cited Guideline**: direct NICE quote, strips surrounding quotes
+- **Explanation**: multiline text
+- **Guidelines Followed/Not Followed**: comma-separated lists
+- Default to -1 (NON-COMPLIANT) if score parsing fails entirely (conservative default)
 
 ### Aggregate Scoring
 
-Same formula as Cyprian's (proportion of adherent diagnoses):
+Updated in Phase 8b — now uses a **normalised mean** instead of Cyprian's simple proportion:
 
 ```python
 @property
 def aggregate_score(self) -> float:
-    scored = self.adherent_count + self.non_adherent_count
-    if scored == 0:
+    scored = [ds for ds in self.diagnosis_scores if ds.error is None]
+    if not scored:
         return 0.0
-    return self.adherent_count / scored
+    normalized = [(ds.score + 2) / 4 for ds in scored]
+    return sum(normalized) / len(normalized)
 ```
 
-One key difference: **errors are excluded from the aggregate**. If a diagnosis fails to score (API error), it doesn't count against the patient. Only successfully scored diagnoses affect the aggregate.
+This maps each score from [-2, +2] to [0.0, 1.0] then averages. Errors are excluded — if a diagnosis fails to score (API error), it doesn't count against the patient.
+
+Backward-compatible properties `adherent_count` and `non_adherent_count` are preserved for legacy code: adherent = compliant + partial, non-adherent = non-compliant + risky.
 
 ### Guideline Formatting
 
@@ -409,7 +411,7 @@ On error:
 - The error count is tracked in the ScoringResult
 - Errors are excluded from the aggregate score
 
-### Data Flow Through the Scorer
+### Data Flow Through the Compliance Auditor
 
 ```
 ExtractionResult          RetrievalResult
@@ -421,26 +423,29 @@ ExtractionResult          RetrievalResult
 │       ├── treatment: Ibuprofen  └── guideline 3 (rank 3)
 │       └── referral: Physio
 │
-└─── Scorer combines them ──→ For "Low back pain":
-                                Prompt includes:
-                                  - Diagnosis: Low back pain
-                                  - Treatments: Ibuprofen
-                                  - Referrals: Physio
-                                  - Guidelines: [3 passages]
-                                     ↓
-                                  LLM evaluates
-                                     ↓
-                                  Score: +1
-                                  Explanation: "Treatments align..."
-                                  Followed: ["NSAIDs", "physio referral"]
-                                  Not Followed: ["None"]
+└─── Auditor combines them ──→ For "Low back pain":
+                                 Prompt includes:
+                                   - Diagnosis: Low back pain
+                                   - Treatments: Ibuprofen
+                                   - Referrals: Physio
+                                   - Guidelines: [3 passages]
+                                      ↓
+                                   LLM evaluates
+                                      ↓
+                                   Score: +1
+                                   Judgement: PARTIALLY COMPLIANT
+                                   Confidence: 0.75
+                                   Cited Guideline: "Consider referral to..."
+                                   Explanation: "GP referred correctly..."
+                                   Followed: ["Physio referral"]
+                                   Not Followed: ["Exercise therapy"]
 ```
 
 ### The Dual-Input Challenge
 
-The Scorer is the only agent that receives input from **two** previous agents:
-- **Extractor** provides what the GP did (treatments, referrals, etc.)
-- **Retriever** provides what the GP should have done (guidelines)
+The Compliance Auditor is the only agent that receives input from **two** previous agents:
+- **Consultation Insight Agent** provides what the GP did (treatments, referrals, etc.)
+- **Guideline Evidence Finder** provides what the GP should have done (guidelines)
 
 Cyprian handled this by running two Flask servers and a global state dict that waited for both inputs. We handle it much more simply — the `score()` method takes both as parameters:
 
@@ -452,22 +457,25 @@ async def score(
 ) -> ScoringResult:
 ```
 
-The pipeline orchestrator (Phase 6) will call this with both results. No servers, no global state, no waiting.
+The pipeline orchestrator calls this with both results. No servers, no global state, no waiting.
 
 ## Side-by-Side Comparison
 
-| Aspect | Cyprian's Scorer | Our Scorer |
-|--------|-----------------|------------|
-| **LLM model** | GPT-3.5-turbo (weakest) | GPT-4o-mini via abstraction (swappable) |
+| Aspect | Cyprian's Scorer | Our Compliance Auditor |
+|--------|-----------------|----------------------|
+| **Scoring scale** | Binary +1/-1 | 5-level: -2 to +2 with judgement labels |
+| **Confidence** | None | 0.0-1.0 per diagnosis |
+| **Guideline citations** | None | Direct NICE quotes per diagnosis |
+| **LLM model** | GPT-3.5-turbo (weakest) | GPT-4o-mini / Ollama (swappable via provider abstraction) |
 | **Clinical context** | Treatments only | Treatments + referrals + investigations + procedures |
 | **Guideline text** | 1 guideline, 500 chars | Top-K guidelines, 2,000 chars (configurable) |
-| **Guideline selection** | Substring match (`diag in text`) | Pre-matched by Retriever (semantic search) |
-| **Score parsing** | Case-sensitive bug (always -1) | Case-insensitive regex, handles brackets/edge cases |
-| **Output structure** | Score + explanation only | Score + explanation + followed + not followed |
+| **Guideline selection** | Substring match (`diag in text`) | Pre-matched by Guideline Evidence Finder (semantic search) |
+| **Score parsing** | Case-sensitive bug (always -1) | Case-insensitive regex, 7 fields, handles brackets/edge cases |
+| **Output structure** | Score + explanation only | Score + judgement + confidence + citation + explanation + followed + not followed |
 | **Error handling** | None (crashes on API error) | Per-diagnosis error capture, continues processing |
-| **Aggregate formula** | `followed / total` (same) | `adherent / scored` (excludes errors) |
+| **Aggregate formula** | `followed / total` | `mean((score + 2) / 4)` normalised [0,1], excludes errors |
 | **Architecture** | Flask + JSON-RPC + global state | Direct function call, no servers |
-| **Testing** | 5 manual test cases in notebook | 32 automated unit tests |
+| **Testing** | 5 manual test cases in notebook | 48+ automated unit tests |
 | **Async** | No | Yes (async/await) |
 | **Temperature** | 0 (same) | 0 (same — deterministic scoring) |
 | **Logging** | None | Structured logging with patient context |
@@ -477,22 +485,24 @@ The pipeline orchestrator (Phase 6) will call this with both results. No servers
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `scorer_max_guideline_chars` | 2000 | Max characters of guideline text in prompt (vs Cyprian's 500) |
-| `ai_provider` | `openai` | Which LLM provider to use (via abstraction layer) |
+| `ai_provider` | `openai` | Which LLM provider to use — `openai`, `ollama`, or `local` |
 | `openai_model` | `gpt-4o-mini` | Default model (vs Cyprian's gpt-3.5-turbo) |
+| `ollama_model` | `mistral-small` | Local Ollama model (Phase 8c) — 22B, good structured output |
 
 ## Test Coverage
 
-34 tests covering:
+48+ tests covering:
 
-- **Response parsing** (9 tests): adherent/non-adherent, case insensitive, multiline, whitespace, defaults, missing fields, square bracket format
-- **Data classes** (8 tests): DiagnosisScore creation, ScoringResult aggregate calculation (all adherent, all non-adherent, mixed, with errors, empty), summary structure
-- **ScorerAgent** (12 tests): single diagnosis, multi-diagnosis, LLM call verification, prompt content (diagnosis terms, treatments, guidelines), temperature setting, empty inputs, non-adherent results, error handling, missing episodes, guideline title storage, field preservation
+- **AuditJudgement enum** (2 tests): enum values, label coverage
+- **Response parsing** (11 tests): all 5 score levels, confidence parsing, cited guideline extraction, case insensitive, multiline, whitespace, defaults, missing fields
+- **Data classes** (10 tests): DiagnosisScore with judgement/confidence fields, ScoringResult per-level counters, backward-compat adherent/non_adherent properties, new aggregate formula, summary structure
+- **ComplianceAuditorAgent** (14 tests): single diagnosis, multi-diagnosis, LLM call verification, prompt content, temperature setting, empty inputs, risky scores, partial scores, error handling, missing episodes, guideline title storage, field preservation
 - **Guideline formatting** (4 tests): with guidelines, empty, max chars truncation, rank ordering
 
 ## What Happens Next?
 
-The ScoringResult is the **final output** of the 4-agent pipeline. In Phase 6 (Pipeline Integration), we'll:
-1. Chain all 4 agents together (Extractor → Query → Retriever → Scorer)
-2. Build API endpoints to trigger audits for single patients or batches
-3. Store results in the database
-4. In Phase 7, compare our scores against the 120 gold-standard human audits
+The ScoringResult is the **final output** of the 4-agent pipeline. Next steps:
+1. **Evaluation framework** — per-agent metrics (Extraction P/R/F1, Query relevance, Retriever Recall@k/nDCG/MRR)
+2. **System-level metrics** — Accuracy, Precision, Recall, F1, AUROC for 5-class scoring
+3. **Gold-standard validation** — compare AI scores against 120 manually-audited cases (when available)
+4. **LLM-as-Judge** — evaluation without clinician labels

@@ -2,10 +2,10 @@
 Audit Pipeline — chains all 4 agents into an end-to-end audit.
 
 The pipeline orchestrates:
-  1. Extractor Agent → categorise clinical entries
-  2. Query Agent    → generate guideline search queries
-  3. Retriever Agent → embed queries and search FAISS
-  4. Scorer Agent   → evaluate guideline adherence via LLM
+  1. Consultation Insight Agent → categorise clinical entries
+  2. Audit Query Generator     → generate guideline search queries
+  3. Guideline Evidence Finder → embed queries and search FAISS
+  4. Compliance Auditor Agent  → evaluate guideline adherence via LLM
 
 Provides both single-patient and batch execution modes.
 """
@@ -19,11 +19,12 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.agents.extractor import ExtractorAgent, ExtractionResult
-from src.agents.query import QueryAgent, QueryResult
-from src.agents.retriever import RetrieverAgent, RetrievalResult
-from src.agents.scorer import ScorerAgent, ScoringResult
+from src.agents.extractor import ConsultationInsightAgent, ExtractionResult
+from src.agents.query import AuditQueryGenerator, QueryResult
+from src.agents.retriever import GuidelineEvidenceFinder, RetrievalResult
+from src.agents.scorer import ComplianceAuditorAgent, ScoringResult
 from src.ai.base import AIProvider
+from src.config.settings import get_settings
 from src.models.audit import AuditJob, AuditResult
 from src.models.patient import ClinicalEntry, Patient
 from src.services.embedder import Embedder
@@ -94,13 +95,13 @@ class AuditPipeline:
         embedder: Embedder,
         vector_store: VectorStore,
     ) -> None:
-        self._extractor = ExtractorAgent(ai_provider=ai_provider)
-        self._query_agent = QueryAgent(ai_provider=ai_provider)
-        self._retriever = RetrieverAgent(
+        self._extractor = ConsultationInsightAgent(ai_provider=ai_provider)
+        self._query_agent = AuditQueryGenerator(ai_provider=ai_provider)
+        self._retriever = GuidelineEvidenceFinder(
             embedder=embedder,
             vector_store=vector_store,
         )
-        self._scorer = ScorerAgent(ai_provider=ai_provider)
+        self._scorer = ComplianceAuditorAgent(ai_provider=ai_provider)
         self._categories_loaded = False
 
     @property
@@ -271,6 +272,7 @@ class AuditPipeline:
             processed_patients=0,
             failed_patients=0,
             started_at=datetime.now(timezone.utc),
+            provider=get_settings().ai_provider,
         )
         session.add(job)
         await session.flush()

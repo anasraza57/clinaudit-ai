@@ -15,7 +15,10 @@ from src.agents.retriever import (
     DiagnosisGuidelines,
     GuidelineMatch,
     RetrievalResult,
-    RetrieverAgent,
+    GuidelineEvidenceFinder,
+    _diagnosis_topics,
+    _title_is_excluded,
+    _title_topics,
 )
 
 
@@ -118,11 +121,11 @@ def empty_query_result():
 # ── Retriever Agent tests ────────────────────────────────────────────
 
 
-class TestRetrieverAgent:
+class TestGuidelineEvidenceFinder:
     def test_retrieve_single_diagnosis(
         self, mock_embedder, mock_vector_store, single_query_result
     ):
-        agent = RetrieverAgent(
+        agent = GuidelineEvidenceFinder(
             embedder=mock_embedder,
             vector_store=mock_vector_store,
             top_k=5,
@@ -137,7 +140,7 @@ class TestRetrieverAgent:
     def test_retrieve_embeds_each_query(
         self, mock_embedder, mock_vector_store, single_query_result
     ):
-        agent = RetrieverAgent(
+        agent = GuidelineEvidenceFinder(
             embedder=mock_embedder,
             vector_store=mock_vector_store,
         )
@@ -149,7 +152,7 @@ class TestRetrieverAgent:
     def test_retrieve_searches_for_each_query(
         self, mock_embedder, mock_vector_store, single_query_result
     ):
-        agent = RetrieverAgent(
+        agent = GuidelineEvidenceFinder(
             embedder=mock_embedder,
             vector_store=mock_vector_store,
         )
@@ -162,7 +165,7 @@ class TestRetrieverAgent:
         self, mock_embedder, mock_vector_store, single_query_result
     ):
         """Multiple queries returning the same guideline should be deduped."""
-        agent = RetrieverAgent(
+        agent = GuidelineEvidenceFinder(
             embedder=mock_embedder,
             vector_store=mock_vector_store,
             top_k=5,
@@ -208,7 +211,7 @@ class TestRetrieverAgent:
             total_queries=2,
         )
 
-        agent = RetrieverAgent(embedder=mock_embedder, vector_store=store, top_k=5)
+        agent = GuidelineEvidenceFinder(embedder=mock_embedder, vector_store=store, top_k=5)
         result = agent.retrieve(qr)
 
         dg = result.diagnosis_guidelines[0]
@@ -218,7 +221,7 @@ class TestRetrieverAgent:
     def test_retrieve_multi_diagnosis(
         self, mock_embedder, mock_vector_store, multi_diagnosis_result
     ):
-        agent = RetrieverAgent(
+        agent = GuidelineEvidenceFinder(
             embedder=mock_embedder,
             vector_store=mock_vector_store,
         )
@@ -232,7 +235,7 @@ class TestRetrieverAgent:
     def test_retrieve_empty_queries(
         self, mock_embedder, mock_vector_store, empty_query_result
     ):
-        agent = RetrieverAgent(
+        agent = GuidelineEvidenceFinder(
             embedder=mock_embedder,
             vector_store=mock_vector_store,
         )
@@ -265,7 +268,7 @@ class TestRetrieverAgent:
             total_queries=1,
         )
 
-        agent = RetrieverAgent(embedder=mock_embedder, vector_store=store, top_k=3)
+        agent = GuidelineEvidenceFinder(embedder=mock_embedder, vector_store=store, top_k=3)
         result = agent.retrieve(qr)
 
         assert len(result.diagnosis_guidelines[0].guidelines) == 3
@@ -273,7 +276,7 @@ class TestRetrieverAgent:
     def test_guidelines_have_ranks(
         self, mock_embedder, mock_vector_store, single_query_result
     ):
-        agent = RetrieverAgent(
+        agent = GuidelineEvidenceFinder(
             embedder=mock_embedder,
             vector_store=mock_vector_store,
         )
@@ -286,7 +289,7 @@ class TestRetrieverAgent:
     def test_summary_output(
         self, mock_embedder, mock_vector_store, single_query_result
     ):
-        agent = RetrieverAgent(
+        agent = GuidelineEvidenceFinder(
             embedder=mock_embedder,
             vector_store=mock_vector_store,
         )
@@ -321,7 +324,7 @@ class TestRetrieverAgent:
             total_queries=2,
         )
 
-        agent = RetrieverAgent(
+        agent = GuidelineEvidenceFinder(
             embedder=mock_embedder,
             vector_store=mock_vector_store,
         )
@@ -361,7 +364,7 @@ class TestRetrieverAgent:
             total_queries=2,
         )
 
-        agent = RetrieverAgent(
+        agent = GuidelineEvidenceFinder(
             embedder=mock_embedder,
             vector_store=mock_vector_store,
         )
@@ -434,3 +437,189 @@ class TestRetrievalResult:
         assert summary["total_diagnoses"] == 0
         assert summary["total_guidelines"] == 0
         assert summary["diagnoses"] == []
+
+
+# ── Relevance filter helper tests ────────────────────────────────────
+
+
+class TestRelevanceHelpers:
+    """Tests for the module-level relevance filtering functions."""
+
+    def test_diagnosis_topics_back_pain(self):
+        topics = _diagnosis_topics("Low back pain")
+        assert "spine" in topics
+        assert "pain" in topics
+
+    def test_diagnosis_topics_carpal_tunnel(self):
+        topics = _diagnosis_topics("Carpal tunnel syndrome")
+        assert "hand_wrist" in topics
+
+    def test_diagnosis_topics_knee(self):
+        topics = _diagnosis_topics("Osteoarthritis of knee")
+        assert "knee" in topics
+        assert "osteoarthritis" in topics
+
+    def test_diagnosis_topics_unknown_condition(self):
+        topics = _diagnosis_topics("Xylophonia syndrome")
+        assert topics == set()
+
+    def test_title_topics_matches(self):
+        topics = _title_topics("Low back pain and sciatica: management")
+        assert "spine" in topics
+        assert "pain" in topics
+
+    def test_title_is_excluded_cancer(self):
+        assert _title_is_excluded("Lorlatinib for untreated ALK-positive non-small-cell lung cancer")
+
+    def test_title_is_excluded_diabetes(self):
+        assert _title_is_excluded("Diabetic foot problems: prevention and management")
+
+    def test_title_is_excluded_chest_pain(self):
+        assert _title_is_excluded("Recent-onset chest pain of suspected cardiac origin")
+
+    def test_title_not_excluded_msk(self):
+        assert not _title_is_excluded("Osteoarthritis: care and management in adults")
+
+    def test_title_not_excluded_back_pain(self):
+        assert not _title_is_excluded("Low back pain and sciatica in over 16s")
+
+
+# ── Relevance filter integration tests ───────────────────────────────
+
+
+class TestRelevanceFiltering:
+    """Tests for the _filter_irrelevant method on GuidelineEvidenceFinder."""
+
+    @pytest.fixture()
+    def finder(self, mock_embedder, mock_vector_store):
+        return GuidelineEvidenceFinder(
+            embedder=mock_embedder,
+            vector_store=mock_vector_store,
+            top_k=5,
+        )
+
+    def _make_match(self, title: str, score: float = 0.3) -> GuidelineMatch:
+        return GuidelineMatch(
+            guideline_id=f"g-{hash(title)}",
+            title=title,
+            source="nice",
+            url="",
+            clean_text=f"Guideline text for {title}",
+            score=score,
+            rank=0,
+            matched_query="test",
+        )
+
+    def test_filters_excluded_title_terms(self, finder):
+        """Guidelines from clearly irrelevant specialties are removed."""
+        matches = [
+            self._make_match("Low back pain and sciatica", 0.2),
+            self._make_match("Lorlatinib for non-small-cell lung cancer", 0.3),
+            self._make_match("Diabetic foot problems", 0.4),
+        ]
+        filtered = finder._filter_irrelevant("Low back pain", matches)
+        titles = [m.title for m in filtered]
+        assert "Low back pain and sciatica" in titles
+        assert "Lorlatinib for non-small-cell lung cancer" not in titles
+        assert "Diabetic foot problems" not in titles
+
+    def test_filters_topic_mismatch(self, finder):
+        """A knee guideline should be filtered for a shoulder diagnosis."""
+        matches = [
+            self._make_match("Shoulder impingement management", 0.2),
+            self._make_match("Knee osteoarthritis treatment", 0.3),
+        ]
+        filtered = finder._filter_irrelevant("Shoulder pain", matches)
+        titles = [m.title for m in filtered]
+        assert "Shoulder impingement management" in titles
+        assert "Knee osteoarthritis treatment" not in titles
+
+    def test_filters_high_distance(self, finder):
+        """Guidelines with L2 distance above threshold are removed."""
+        matches = [
+            self._make_match("Back pain management", 0.3),
+            self._make_match("Spine rehabilitation guidelines", 1.5),  # above default 1.2
+        ]
+        filtered = finder._filter_irrelevant("Low back pain", matches)
+        assert len(filtered) == 1
+        assert filtered[0].title == "Back pain management"
+
+    def test_fallback_when_all_filtered(self, finder):
+        """If all guidelines are filtered, best match is kept as fallback."""
+        matches = [
+            self._make_match("Lung cancer screening", 0.5),
+            self._make_match("Breast cancer management", 0.7),
+        ]
+        filtered = finder._filter_irrelevant("Carpal tunnel syndrome", matches)
+        # All are cancer → excluded, but fallback keeps best match
+        assert len(filtered) == 1
+        assert filtered[0].title == "Lung cancer screening"
+
+    def test_unknown_diagnosis_no_topic_filtering(self, finder):
+        """Rare/novel diagnoses with no topic match skip topic filtering."""
+        matches = [
+            self._make_match("Chest pain cardiac assessment", 0.3),
+            self._make_match("Generic MSK management guide", 0.4),
+        ]
+        # "Xylophonia syndrome" has no topic tags, so topic filter is skipped.
+        # But "chest pain" is in the exclude list, so it gets filtered.
+        filtered = finder._filter_irrelevant("Xylophonia syndrome", matches)
+        titles = [m.title for m in filtered]
+        assert "Chest pain cardiac assessment" not in titles
+        assert "Generic MSK management guide" in titles
+
+    def test_relevant_guidelines_pass_through(self, finder):
+        """Topically relevant guidelines are not filtered."""
+        matches = [
+            self._make_match("Osteoarthritis: care and management", 0.2),
+            self._make_match("Joint replacement referral criteria", 0.3),
+        ]
+        filtered = finder._filter_irrelevant("Osteoarthritis of knee", matches)
+        assert len(filtered) == 2
+
+    def test_carpal_tunnel_vs_chest_pain(self, finder):
+        """Regression: carpal tunnel should NOT match chest pain guidelines."""
+        matches = [
+            self._make_match("Recent-onset chest pain of suspected cardiac origin", 0.4),
+            self._make_match("Carpal tunnel syndrome: management", 0.5),
+        ]
+        filtered = finder._filter_irrelevant("Carpal tunnel syndrome", matches)
+        titles = [m.title for m in filtered]
+        assert "Recent-onset chest pain of suspected cardiac origin" not in titles
+        assert "Carpal tunnel syndrome: management" in titles
+
+    def test_filtering_integrated_in_retrieve(self, mock_embedder):
+        """End-to-end: irrelevant guidelines are filtered during retrieval."""
+        store = MagicMock()
+        store.search.return_value = [
+            {"id": "g-1", "title": "Low back pain and sciatica", "source": "nice",
+             "url": "", "clean_text": "Relevant guideline.", "score": 0.2},
+            {"id": "g-2", "title": "Breast cancer screening programme", "source": "nice",
+             "url": "", "clean_text": "Irrelevant guideline.", "score": 0.3},
+            {"id": "g-3", "title": "Diabetic foot problems", "source": "nice",
+             "url": "", "clean_text": "Irrelevant guideline.", "score": 0.4},
+        ]
+
+        qr = QueryResult(
+            pat_id="pat-filter",
+            diagnosis_queries=[
+                DiagnosisQueries(
+                    diagnosis_term="Low back pain",
+                    concept_id="279039007",
+                    index_date="2024-01-15",
+                    queries=["low back pain guidelines"],
+                    source="template",
+                ),
+            ],
+            total_diagnoses=1,
+            total_queries=1,
+        )
+
+        agent = GuidelineEvidenceFinder(embedder=mock_embedder, vector_store=store, top_k=5)
+        result = agent.retrieve(qr)
+
+        dg = result.diagnosis_guidelines[0]
+        titles = [g.title for g in dg.guidelines]
+        assert "Low back pain and sciatica" in titles
+        assert "Breast cancer screening programme" not in titles
+        assert "Diabetic foot problems" not in titles

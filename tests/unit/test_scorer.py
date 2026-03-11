@@ -1,5 +1,5 @@
 """
-Tests for the Scorer Agent.
+Tests for the Compliance Auditor Agent (scorer).
 
 Uses a mock AI provider to test scoring logic without calling a real LLM.
 """
@@ -12,8 +12,10 @@ import pytest
 from src.agents.extractor import CategorisedEntry, ExtractionResult, PatientEpisode
 from src.agents.retriever import DiagnosisGuidelines, GuidelineMatch, RetrievalResult
 from src.agents.scorer import (
+    AuditJudgement,
     DiagnosisScore,
-    ScorerAgent,
+    JUDGEMENT_LABELS,
+    ComplianceAuditorAgent,
     ScoringResult,
     parse_scoring_response,
 )
@@ -24,11 +26,14 @@ from src.agents.scorer import (
 
 @pytest.fixture()
 def mock_ai_provider():
-    """Mock AI provider that returns a well-formed scoring response."""
+    """Mock AI provider that returns a compliant (5-level) scoring response."""
     provider = AsyncMock()
     provider.provider_name = "mock"
     provider.chat_simple.return_value = (
-        "Score: +1\n"
+        "Score: +2\n"
+        "Judgement: COMPLIANT\n"
+        "Confidence: 0.85\n"
+        'Cited Guideline: "Offer exercise therapy as first-line treatment."\n'
         "Explanation: The documented treatments align with NICE guidelines for low back pain.\n"
         "Guidelines Followed: Exercise therapy recommended, NSAIDs prescribed\n"
         "Guidelines Not Followed: None"
@@ -37,15 +42,52 @@ def mock_ai_provider():
 
 
 @pytest.fixture()
+def mock_ai_provider_partial():
+    """Mock AI provider that returns a partially compliant response."""
+    provider = AsyncMock()
+    provider.provider_name = "mock"
+    provider.chat_simple.return_value = (
+        "Score: +1\n"
+        "Judgement: PARTIALLY COMPLIANT\n"
+        "Confidence: 0.7\n"
+        'Cited Guideline: "Consider referral to physiotherapy."\n'
+        "Explanation: Physiotherapy referral was made but no NSAID was prescribed.\n"
+        "Guidelines Followed: Physiotherapy referral\n"
+        "Guidelines Not Followed: NSAID prescription"
+    )
+    return provider
+
+
+@pytest.fixture()
 def mock_ai_provider_non_adherent():
-    """Mock AI provider that returns a non-adherent response."""
+    """Mock AI provider that returns a non-compliant response."""
     provider = AsyncMock()
     provider.provider_name = "mock"
     provider.chat_simple.return_value = (
         "Score: -1\n"
+        "Judgement: NON-COMPLIANT\n"
+        "Confidence: 0.9\n"
+        'Cited Guideline: "Offer exercise therapy as first-line treatment."\n'
         "Explanation: No treatments or referrals documented for this diagnosis.\n"
         "Guidelines Followed: None\n"
         "Guidelines Not Followed: Exercise therapy, physiotherapy referral"
+    )
+    return provider
+
+
+@pytest.fixture()
+def mock_ai_provider_risky():
+    """Mock AI provider that returns a risky non-compliant response."""
+    provider = AsyncMock()
+    provider.provider_name = "mock"
+    provider.chat_simple.return_value = (
+        "Score: -2\n"
+        "Judgement: RISKY NON-COMPLIANT\n"
+        "Confidence: 0.95\n"
+        'Cited Guideline: "Do not offer opioids for chronic non-specific low back pain."\n'
+        "Explanation: Opioids prescribed contrary to NICE guidelines.\n"
+        "Guidelines Followed: None\n"
+        "Guidelines Not Followed: Avoid opioids for chronic LBP"
     )
     return provider
 
@@ -240,27 +282,84 @@ def multi_diagnosis_retrieval():
     )
 
 
+# ── AuditJudgement enum tests ───────────────────────────────────────
+
+
+class TestAuditJudgement:
+    def test_values(self):
+        assert AuditJudgement.RISKY_NON_COMPLIANT == -2
+        assert AuditJudgement.NON_COMPLIANT == -1
+        assert AuditJudgement.NOT_RELEVANT == 0
+        assert AuditJudgement.PARTIALLY_COMPLIANT == 1
+        assert AuditJudgement.COMPLIANT == 2
+
+    def test_labels_cover_all_values(self):
+        for member in AuditJudgement:
+            assert member.value in JUDGEMENT_LABELS
+
+
 # ── parse_scoring_response tests ─────────────────────────────────────
 
 
 class TestParseScoringResponse:
-    def test_parse_adherent_response(self):
+    def test_parse_compliant_response(self):
         response = (
-            "Score: +1\n"
+            "Score: +2\n"
+            "Judgement: COMPLIANT\n"
+            "Confidence: 0.85\n"
+            'Cited Guideline: "Offer exercise therapy as first-line treatment."\n'
             "Explanation: Treatments align with guidelines.\n"
             "Guidelines Followed: Exercise therapy, NSAID prescription\n"
             "Guidelines Not Followed: None"
         )
         result = parse_scoring_response(response)
 
-        assert result["score"] == 1
+        assert result["score"] == 2
+        assert result["judgement"] == "COMPLIANT"
+        assert result["confidence"] == 0.85
+        assert "exercise therapy" in result["cited_guideline_text"].lower()
         assert "align" in result["explanation"]
         assert len(result["guidelines_followed"]) == 2
         assert result["guidelines_not_followed"] == []
 
-    def test_parse_non_adherent_response(self):
+    def test_parse_partially_compliant(self):
+        response = (
+            "Score: +1\n"
+            "Judgement: PARTIALLY COMPLIANT\n"
+            "Confidence: 0.7\n"
+            'Cited Guideline: "Consider referral to physiotherapy."\n'
+            "Explanation: Referral made but no NSAID.\n"
+            "Guidelines Followed: Physio referral\n"
+            "Guidelines Not Followed: NSAID prescription"
+        )
+        result = parse_scoring_response(response)
+
+        assert result["score"] == 1
+        assert result["judgement"] == "PARTIALLY COMPLIANT"
+        assert result["confidence"] == 0.7
+
+    def test_parse_not_relevant(self):
+        response = (
+            "Score: 0\n"
+            "Judgement: NOT RELEVANT\n"
+            "Confidence: 0.6\n"
+            "Cited Guideline: None\n"
+            "Explanation: Guideline not applicable.\n"
+            "Guidelines Followed: None\n"
+            "Guidelines Not Followed: None"
+        )
+        result = parse_scoring_response(response)
+
+        assert result["score"] == 0
+        assert result["confidence"] == 0.6
+        assert result["cited_guideline_text"] == ""
+
+    def test_parse_non_compliant(self):
         response = (
             "Score: -1\n"
+            "Judgement: NON-COMPLIANT\n"
+            "Confidence: 0.9\n"
+            'Cited Guideline: "Exercise therapy recommended."\n'
             "Explanation: No treatments documented.\n"
             "Guidelines Followed: None\n"
             "Guidelines Not Followed: Exercise therapy, physiotherapy referral"
@@ -272,21 +371,43 @@ class TestParseScoringResponse:
         assert result["guidelines_followed"] == []
         assert len(result["guidelines_not_followed"]) == 2
 
-    def test_parse_score_without_plus_sign(self):
-        """Score: 1 (no plus sign) should still parse as adherent."""
+    def test_parse_risky_non_compliant(self):
         response = (
-            "Score: 1\n"
+            "Score: -2\n"
+            "Judgement: RISKY NON-COMPLIANT\n"
+            "Confidence: 0.95\n"
+            'Cited Guideline: "Do not offer opioids for chronic low back pain."\n'
+            "Explanation: Opioids prescribed contrary to NICE guidelines.\n"
+            "Guidelines Followed: None\n"
+            "Guidelines Not Followed: Avoid opioids"
+        )
+        result = parse_scoring_response(response)
+
+        assert result["score"] == -2
+        assert result["confidence"] == 0.95
+        assert "opioids" in result["cited_guideline_text"].lower()
+
+    def test_parse_score_without_plus_sign(self):
+        """Score: 2 (no plus sign) should still parse as compliant."""
+        response = (
+            "Score: 2\n"
+            "Judgement: COMPLIANT\n"
+            "Confidence: 0.8\n"
+            "Cited Guideline: None\n"
             "Explanation: Good.\n"
             "Guidelines Followed: Something\n"
             "Guidelines Not Followed: None"
         )
         result = parse_scoring_response(response)
-        assert result["score"] == 1
+        assert result["score"] == 2
 
-    def test_parse_defaults_to_non_adherent(self):
+    def test_parse_defaults_to_non_compliant(self):
         """If score can't be parsed, default to -1."""
         result = parse_scoring_response("Some garbage response")
         assert result["score"] == -1
+        assert result["judgement"] == "NON-COMPLIANT"
+        assert result["confidence"] == 0.0
+        assert result["cited_guideline_text"] == ""
         assert result["explanation"] == ""
         assert result["guidelines_followed"] == []
         assert result["guidelines_not_followed"] == []
@@ -294,6 +415,9 @@ class TestParseScoringResponse:
     def test_parse_multiline_explanation(self):
         response = (
             "Score: +1\n"
+            "Judgement: PARTIALLY COMPLIANT\n"
+            "Confidence: 0.75\n"
+            "Cited Guideline: None\n"
             "Explanation: The GP prescribed appropriate treatment.\n"
             "The referral was timely.\n"
             "Guidelines Followed: NSAID prescription\n"
@@ -306,6 +430,9 @@ class TestParseScoringResponse:
     def test_parse_case_insensitive(self):
         response = (
             "score: +1\n"
+            "judgement: PARTIALLY COMPLIANT\n"
+            "confidence: 0.8\n"
+            "cited guideline: None\n"
             "explanation: Good care.\n"
             "guidelines followed: Treatment A\n"
             "guidelines not followed: none"
@@ -318,19 +445,25 @@ class TestParseScoringResponse:
 
     def test_parse_extra_whitespace(self):
         response = (
-            "Score:   +1  \n"
+            "Score:   +2  \n"
+            "Judgement: COMPLIANT\n"
+            "Confidence: 0.9\n"
+            "Cited Guideline: None\n"
             "Explanation:   Some explanation here.  \n"
             "Guidelines Followed:   Item A ,  Item B  \n"
             "Guidelines Not Followed:   None  "
         )
         result = parse_scoring_response(response)
-        assert result["score"] == 1
+        assert result["score"] == 2
         assert result["explanation"] == "Some explanation here."
         assert result["guidelines_followed"] == ["Item A", "Item B"]
 
     def test_parse_single_guideline_items(self):
         response = (
             "Score: -1\n"
+            "Judgement: NON-COMPLIANT\n"
+            "Confidence: 0.8\n"
+            'Cited Guideline: "Exercise."\n'
             "Explanation: Missing referral.\n"
             "Guidelines Followed: NSAIDs\n"
             "Guidelines Not Followed: Physiotherapy referral"
@@ -340,18 +473,24 @@ class TestParseScoringResponse:
         assert result["guidelines_not_followed"] == ["Physiotherapy referral"]
 
     def test_parse_score_with_square_brackets(self):
-        """LLMs sometimes output Score: [+1] with brackets. Must parse correctly."""
+        """LLMs sometimes output Score: [+2] with brackets."""
         adherent = (
-            "Score: [+1]\n"
+            "Score: [+2]\n"
+            "Judgement: COMPLIANT\n"
+            "Confidence: 0.85\n"
+            "Cited Guideline: None\n"
             "Explanation: Referral was appropriate.\n"
             "Guidelines Followed: Physiotherapy referral\n"
             "Guidelines Not Followed: None"
         )
         result = parse_scoring_response(adherent)
-        assert result["score"] == 1
+        assert result["score"] == 2
 
         non_adherent = (
             "Score: [-1]\n"
+            "Judgement: NON-COMPLIANT\n"
+            "Confidence: 0.9\n"
+            "Cited Guideline: None\n"
             "Explanation: No actions taken.\n"
             "Guidelines Followed: None\n"
             "Guidelines Not Followed: Treatment"
@@ -359,22 +498,42 @@ class TestParseScoringResponse:
         result = parse_scoring_response(non_adherent)
         assert result["score"] == -1
 
+    def test_parse_confidence_edge_values(self):
+        """Confidence of 0 and 1 should parse correctly."""
+        for conf_val, expected in [("0.0", 0.0), ("1.0", 1.0), ("0", 0.0), ("1", 1.0)]:
+            response = (
+                "Score: 0\n"
+                "Judgement: NOT RELEVANT\n"
+                f"Confidence: {conf_val}\n"
+                "Cited Guideline: None\n"
+                "Explanation: Test.\n"
+                "Guidelines Followed: None\n"
+                "Guidelines Not Followed: None"
+            )
+            result = parse_scoring_response(response)
+            assert result["confidence"] == expected
+
 
 # ── DiagnosisScore tests ─────────────────────────────────────────────
 
 
 class TestDiagnosisScore:
-    def test_creation_adherent(self):
+    def test_creation_compliant(self):
         ds = DiagnosisScore(
             diagnosis_term="Low back pain",
             concept_id="279039007",
             index_date="2024-01-15",
-            score=1,
+            score=2,
+            judgement="COMPLIANT",
             explanation="Good adherence.",
+            confidence=0.85,
+            cited_guideline_text="Exercise therapy recommended.",
             guidelines_followed=["Exercise", "NSAIDs"],
             guidelines_not_followed=[],
         )
-        assert ds.score == 1
+        assert ds.score == 2
+        assert ds.judgement == "COMPLIANT"
+        assert ds.confidence == 0.85
         assert ds.error is None
         assert len(ds.guidelines_followed) == 2
 
@@ -384,6 +543,7 @@ class TestDiagnosisScore:
             concept_id="1",
             index_date="2024-01-01",
             score=-1,
+            judgement="NON-COMPLIANT",
             explanation="Scoring failed.",
             error="API timeout",
         )
@@ -395,29 +555,27 @@ class TestDiagnosisScore:
 
 
 class TestScoringResult:
-    def test_aggregate_score_all_adherent(self):
+    def test_aggregate_score_all_compliant(self):
         sr = ScoringResult(
             pat_id="pat-001",
             diagnosis_scores=[
-                DiagnosisScore("D1", "1", "2024-01-01", 1, "ok"),
-                DiagnosisScore("D2", "2", "2024-01-01", 1, "ok"),
+                DiagnosisScore("D1", "1", "2024-01-01", 2, "COMPLIANT", "ok"),
+                DiagnosisScore("D2", "2", "2024-01-01", 2, "COMPLIANT", "ok"),
             ],
             total_diagnoses=2,
-            adherent_count=2,
-            non_adherent_count=0,
+            compliant_count=2,
         )
         assert sr.aggregate_score == 1.0
 
-    def test_aggregate_score_all_non_adherent(self):
+    def test_aggregate_score_all_risky(self):
         sr = ScoringResult(
             pat_id="pat-001",
             diagnosis_scores=[
-                DiagnosisScore("D1", "1", "2024-01-01", -1, "bad"),
-                DiagnosisScore("D2", "2", "2024-01-01", -1, "bad"),
+                DiagnosisScore("D1", "1", "2024-01-01", -2, "RISKY NON-COMPLIANT", "bad"),
+                DiagnosisScore("D2", "2", "2024-01-01", -2, "RISKY NON-COMPLIANT", "bad"),
             ],
             total_diagnoses=2,
-            adherent_count=0,
-            non_adherent_count=2,
+            risky_count=2,
         )
         assert sr.aggregate_score == 0.0
 
@@ -425,13 +583,40 @@ class TestScoringResult:
         sr = ScoringResult(
             pat_id="pat-001",
             diagnosis_scores=[
-                DiagnosisScore("D1", "1", "2024-01-01", 1, "ok"),
-                DiagnosisScore("D2", "2", "2024-01-01", -1, "bad"),
+                DiagnosisScore("D1", "1", "2024-01-01", 2, "COMPLIANT", "ok"),
+                DiagnosisScore("D2", "2", "2024-01-01", -2, "RISKY NON-COMPLIANT", "bad"),
             ],
             total_diagnoses=2,
-            adherent_count=1,
-            non_adherent_count=1,
+            compliant_count=1,
+            risky_count=1,
         )
+        # (1.0 + 0.0) / 2 = 0.5
+        assert sr.aggregate_score == 0.5
+
+    def test_aggregate_score_partial_and_non_compliant(self):
+        sr = ScoringResult(
+            pat_id="pat-001",
+            diagnosis_scores=[
+                DiagnosisScore("D1", "1", "2024-01-01", 1, "PARTIALLY COMPLIANT", "ok"),
+                DiagnosisScore("D2", "2", "2024-01-01", -1, "NON-COMPLIANT", "bad"),
+            ],
+            total_diagnoses=2,
+            partial_count=1,
+            non_compliant_count=1,
+        )
+        # (0.75 + 0.25) / 2 = 0.5
+        assert sr.aggregate_score == 0.5
+
+    def test_aggregate_score_not_relevant(self):
+        sr = ScoringResult(
+            pat_id="pat-001",
+            diagnosis_scores=[
+                DiagnosisScore("D1", "1", "2024-01-01", 0, "NOT RELEVANT", "n/a"),
+            ],
+            total_diagnoses=1,
+            not_relevant_count=1,
+        )
+        # (0 + 2) / 4 = 0.5
         assert sr.aggregate_score == 0.5
 
     def test_aggregate_score_with_errors(self):
@@ -439,20 +624,31 @@ class TestScoringResult:
         sr = ScoringResult(
             pat_id="pat-001",
             diagnosis_scores=[
-                DiagnosisScore("D1", "1", "2024-01-01", 1, "ok"),
-                DiagnosisScore("D2", "2", "2024-01-01", -1, "failed", error="timeout"),
+                DiagnosisScore("D1", "1", "2024-01-01", 2, "COMPLIANT", "ok"),
+                DiagnosisScore("D2", "2", "2024-01-01", -1, "NON-COMPLIANT", "failed", error="timeout"),
             ],
             total_diagnoses=2,
-            adherent_count=1,
-            non_adherent_count=0,
+            compliant_count=1,
             error_count=1,
         )
-        # Only 1 scored (adherent), errors excluded
+        # Only 1 scored (compliant), errors excluded → 1.0
         assert sr.aggregate_score == 1.0
 
     def test_aggregate_score_no_diagnoses(self):
         sr = ScoringResult(pat_id="pat-001")
         assert sr.aggregate_score == 0.0
+
+    def test_adherent_count_property(self):
+        sr = ScoringResult(
+            pat_id="p", compliant_count=3, partial_count=2,
+        )
+        assert sr.adherent_count == 5
+
+    def test_non_adherent_count_property(self):
+        sr = ScoringResult(
+            pat_id="p", non_compliant_count=2, risky_count=1,
+        )
+        assert sr.non_adherent_count == 3
 
     def test_summary_structure(self):
         sr = ScoringResult(
@@ -462,51 +658,58 @@ class TestScoringResult:
                     diagnosis_term="Low back pain",
                     concept_id="279039007",
                     index_date="2024-01-15",
-                    score=1,
+                    score=2,
+                    judgement="COMPLIANT",
                     explanation="Good.",
+                    confidence=0.85,
+                    cited_guideline_text="Exercise therapy recommended.",
                     guidelines_followed=["Exercise"],
                     guidelines_not_followed=[],
                 ),
             ],
             total_diagnoses=1,
-            adherent_count=1,
-            non_adherent_count=0,
+            compliant_count=1,
         )
         summary = sr.summary()
 
         assert summary["pat_id"] == "pat-001"
         assert summary["total_diagnoses"] == 1
+        assert summary["compliant"] == 1
+        assert summary["partial"] == 0
         assert summary["adherent"] == 1
         assert summary["non_adherent"] == 0
         assert summary["errors"] == 0
         assert summary["aggregate_score"] == 1.0
         assert len(summary["scores"]) == 1
         assert summary["scores"][0]["diagnosis"] == "Low back pain"
-        assert summary["scores"][0]["score"] == 1
+        assert summary["scores"][0]["score"] == 2
+        assert summary["scores"][0]["judgement"] == "COMPLIANT"
+        assert summary["scores"][0]["confidence"] == 0.85
+        assert summary["scores"][0]["cited_guideline_text"] == "Exercise therapy recommended."
 
 
-# ── ScorerAgent tests ────────────────────────────────────────────────
+# ── ComplianceAuditorAgent tests ────────────────────────────────────────────────
 
 
-class TestScorerAgent:
+class TestComplianceAuditorAgent:
     @pytest.mark.asyncio
     async def test_score_single_diagnosis(
         self, mock_ai_provider, sample_extraction, sample_retrieval
     ):
-        agent = ScorerAgent(ai_provider=mock_ai_provider)
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider)
         result = await agent.score(sample_extraction, sample_retrieval)
 
         assert isinstance(result, ScoringResult)
         assert result.pat_id == "pat-001"
         assert result.total_diagnoses == 1
-        assert result.adherent_count == 1
-        assert result.non_adherent_count == 0
+        assert result.compliant_count == 1
+        assert result.non_compliant_count == 0
 
     @pytest.mark.asyncio
     async def test_score_calls_llm(
         self, mock_ai_provider, sample_extraction, sample_retrieval
     ):
-        agent = ScorerAgent(ai_provider=mock_ai_provider)
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider)
         await agent.score(sample_extraction, sample_retrieval)
 
         # Should call LLM once per diagnosis
@@ -516,7 +719,7 @@ class TestScorerAgent:
     async def test_score_prompt_contains_diagnosis(
         self, mock_ai_provider, sample_extraction, sample_retrieval
     ):
-        agent = ScorerAgent(ai_provider=mock_ai_provider)
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider)
         await agent.score(sample_extraction, sample_retrieval)
 
         call_args = mock_ai_provider.chat_simple.call_args
@@ -530,7 +733,7 @@ class TestScorerAgent:
     async def test_score_prompt_contains_guidelines(
         self, mock_ai_provider, sample_extraction, sample_retrieval
     ):
-        agent = ScorerAgent(ai_provider=mock_ai_provider)
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider)
         await agent.score(sample_extraction, sample_retrieval)
 
         call_args = mock_ai_provider.chat_simple.call_args
@@ -543,7 +746,7 @@ class TestScorerAgent:
     async def test_score_uses_temperature_zero(
         self, mock_ai_provider, sample_extraction, sample_retrieval
     ):
-        agent = ScorerAgent(ai_provider=mock_ai_provider)
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider)
         await agent.score(sample_extraction, sample_retrieval)
 
         call_kwargs = mock_ai_provider.chat_simple.call_args[1]
@@ -556,20 +759,20 @@ class TestScorerAgent:
         multi_diagnosis_extraction,
         multi_diagnosis_retrieval,
     ):
-        agent = ScorerAgent(ai_provider=mock_ai_provider)
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider)
         result = await agent.score(
             multi_diagnosis_extraction, multi_diagnosis_retrieval
         )
 
         assert result.total_diagnoses == 2
         assert mock_ai_provider.chat_simple.call_count == 2
-        assert result.adherent_count == 2
+        assert result.compliant_count == 2
 
     @pytest.mark.asyncio
     async def test_score_empty_inputs(
         self, mock_ai_provider, empty_extraction, empty_retrieval
     ):
-        agent = ScorerAgent(ai_provider=mock_ai_provider)
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider)
         result = await agent.score(empty_extraction, empty_retrieval)
 
         assert result.total_diagnoses == 0
@@ -584,14 +787,49 @@ class TestScorerAgent:
         sample_extraction,
         sample_retrieval,
     ):
-        agent = ScorerAgent(ai_provider=mock_ai_provider_non_adherent)
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider_non_adherent)
         result = await agent.score(sample_extraction, sample_retrieval)
 
-        assert result.non_adherent_count == 1
+        assert result.non_compliant_count == 1
         assert result.adherent_count == 0
         ds = result.diagnosis_scores[0]
         assert ds.score == -1
+        assert ds.judgement == "NON-COMPLIANT"
+        assert ds.confidence == 0.9
         assert len(ds.guidelines_not_followed) == 2
+
+    @pytest.mark.asyncio
+    async def test_score_risky_non_compliant(
+        self,
+        mock_ai_provider_risky,
+        sample_extraction,
+        sample_retrieval,
+    ):
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider_risky)
+        result = await agent.score(sample_extraction, sample_retrieval)
+
+        assert result.risky_count == 1
+        assert result.non_adherent_count == 1
+        ds = result.diagnosis_scores[0]
+        assert ds.score == -2
+        assert ds.confidence == 0.95
+        assert "opioids" in ds.cited_guideline_text.lower()
+
+    @pytest.mark.asyncio
+    async def test_score_partial_compliant(
+        self,
+        mock_ai_provider_partial,
+        sample_extraction,
+        sample_retrieval,
+    ):
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider_partial)
+        result = await agent.score(sample_extraction, sample_retrieval)
+
+        assert result.partial_count == 1
+        assert result.adherent_count == 1
+        ds = result.diagnosis_scores[0]
+        assert ds.score == 1
+        assert ds.confidence == 0.7
 
     @pytest.mark.asyncio
     async def test_score_llm_error_handled(
@@ -601,7 +839,7 @@ class TestScorerAgent:
         provider = AsyncMock()
         provider.chat_simple.side_effect = Exception("API timeout")
 
-        agent = ScorerAgent(ai_provider=provider)
+        agent = ComplianceAuditorAgent(ai_provider=provider)
         result = await agent.score(sample_extraction, sample_retrieval)
 
         assert result.error_count == 1
@@ -614,7 +852,6 @@ class TestScorerAgent:
         self, mock_ai_provider, sample_retrieval
     ):
         """If extraction has no matching episode, use 'None documented'."""
-        # Extraction with different date than retrieval expects
         extraction = ExtractionResult(
             pat_id="pat-001",
             episodes=[
@@ -627,7 +864,7 @@ class TestScorerAgent:
             total_diagnoses=0,
         )
 
-        agent = ScorerAgent(ai_provider=mock_ai_provider)
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider)
         result = await agent.score(extraction, sample_retrieval)
 
         call_args = mock_ai_provider.chat_simple.call_args
@@ -638,7 +875,7 @@ class TestScorerAgent:
     async def test_score_stores_guideline_titles(
         self, mock_ai_provider, sample_extraction, sample_retrieval
     ):
-        agent = ScorerAgent(ai_provider=mock_ai_provider)
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider)
         result = await agent.score(sample_extraction, sample_retrieval)
 
         ds = result.diagnosis_scores[0]
@@ -648,7 +885,7 @@ class TestScorerAgent:
     async def test_score_diagnosis_fields(
         self, mock_ai_provider, sample_extraction, sample_retrieval
     ):
-        agent = ScorerAgent(ai_provider=mock_ai_provider)
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider)
         result = await agent.score(sample_extraction, sample_retrieval)
 
         ds = result.diagnosis_scores[0]
@@ -656,13 +893,14 @@ class TestScorerAgent:
         assert ds.concept_id == "279039007"
         assert ds.index_date == "2024-01-15"
         assert ds.explanation != ""
+        assert ds.confidence > 0
+        assert ds.cited_guideline_text != ""
 
     @pytest.mark.asyncio
     async def test_duplicate_diagnosis_same_episode_skipped(
         self, mock_ai_provider, sample_extraction
     ):
         """Same (diagnosis_term, index_date) should be scored once; duplicate skipped."""
-        # Retrieval with duplicate diagnosis in the same episode
         retrieval = RetrievalResult(
             pat_id="pat-001",
             diagnosis_guidelines=[
@@ -705,13 +943,11 @@ class TestScorerAgent:
             total_guidelines=2,
         )
 
-        agent = ScorerAgent(ai_provider=mock_ai_provider)
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider)
         result = await agent.score(sample_extraction, retrieval)
 
-        # Only 1 unique (diagnosis, date) → only 1 score entry
         assert result.total_diagnoses == 1
         assert len(result.diagnosis_scores) == 1
-        # LLM called only once
         assert mock_ai_provider.chat_simple.call_count == 1
 
 
@@ -720,7 +956,7 @@ class TestScorerAgent:
 
 class TestFormatGuidelines:
     def test_format_with_guidelines(self, mock_ai_provider, sample_retrieval):
-        agent = ScorerAgent(ai_provider=mock_ai_provider)
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider)
         dg = sample_retrieval.diagnosis_guidelines[0]
 
         text = agent._format_guidelines(dg)
@@ -728,7 +964,7 @@ class TestFormatGuidelines:
         assert "exercise therapy" in text.lower()
 
     def test_format_no_guidelines(self, mock_ai_provider):
-        agent = ScorerAgent(ai_provider=mock_ai_provider)
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider)
         dg = DiagnosisGuidelines(
             diagnosis_term="Test",
             concept_id="1",
@@ -741,8 +977,7 @@ class TestFormatGuidelines:
 
     def test_format_respects_max_chars(self, mock_ai_provider):
         """Guidelines should be truncated to scorer_max_guideline_chars."""
-        agent = ScorerAgent(ai_provider=mock_ai_provider)
-        # Override max chars to a small value
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider)
         agent._max_guideline_chars = 100
 
         dg = DiagnosisGuidelines(
@@ -764,10 +999,10 @@ class TestFormatGuidelines:
         )
 
         text = agent._format_guidelines(dg)
-        assert len(text) <= 150  # Some overhead for header + ellipsis
+        assert len(text) <= 150
 
     def test_format_sorts_by_rank(self, mock_ai_provider):
-        agent = ScorerAgent(ai_provider=mock_ai_provider)
+        agent = ComplianceAuditorAgent(ai_provider=mock_ai_provider)
         dg = DiagnosisGuidelines(
             diagnosis_term="Test",
             concept_id="1",
@@ -797,5 +1032,4 @@ class TestFormatGuidelines:
         )
 
         text = agent._format_guidelines(dg)
-        # First should appear before Second
         assert text.index("First") < text.index("Second")

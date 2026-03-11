@@ -20,6 +20,7 @@ from src.models.base import Base
 from src.models.patient import Patient
 from src.services.reporting import (
     _load_completed_results,
+    compute_system_metrics,
     get_condition_breakdown,
     get_dashboard_stats,
     get_non_adherent_cases,
@@ -289,7 +290,8 @@ class TestConditionBreakdown:
         assert breakdown == []
 
     @pytest.mark.asyncio
-    async def test_basic_grouping(self, async_session):
+    async def test_basic_grouping_legacy(self, async_session):
+        """Legacy binary format (no judgement key) still works."""
         p1 = _make_patient(async_session, "P1")
         p2 = _make_patient(async_session, "P2")
 
@@ -306,6 +308,8 @@ class TestConditionBreakdown:
 
         back = next(b for b in breakdown if b["diagnosis"] == "Back pain")
         assert back["total_cases"] == 2
+        assert back["compliant"] == 1
+        assert back["non_compliant"] == 1
         assert back["adherent"] == 1
         assert back["non_adherent"] == 1
         assert back["adherence_rate"] == 0.5
@@ -313,6 +317,34 @@ class TestConditionBreakdown:
         knee = next(b for b in breakdown if b["diagnosis"] == "Knee pain")
         assert knee["total_cases"] == 1
         assert knee["adherence_rate"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_basic_grouping_new_format(self, async_session):
+        """New 5-level format with judgement key."""
+        p1 = _make_patient(async_session, "P1")
+        p2 = _make_patient(async_session, "P2")
+
+        await _add_completed_result(async_session, p1, 0.75, [
+            {"diagnosis": "Back pain", "score": 2, "judgement": "COMPLIANT",
+             "confidence": 0.85, "explanation": "OK"},
+            {"diagnosis": "Knee pain", "score": -1, "judgement": "NON-COMPLIANT",
+             "confidence": 0.9, "explanation": "Missing"},
+        ])
+        await _add_completed_result(async_session, p2, 0.5, [
+            {"diagnosis": "Back pain", "score": 1, "judgement": "PARTIALLY COMPLIANT",
+             "confidence": 0.7, "explanation": "Partial"},
+        ])
+
+        breakdown = await get_condition_breakdown(async_session)
+        assert len(breakdown) == 2
+
+        back = next(b for b in breakdown if b["diagnosis"] == "Back pain")
+        assert back["total_cases"] == 2
+        assert back["compliant"] == 1
+        assert back["partial"] == 1
+        assert back["adherent"] == 2
+        assert back["non_adherent"] == 0
+        assert back["adherence_rate"] == 1.0
 
     @pytest.mark.asyncio
     async def test_min_count_filter(self, async_session):
@@ -405,6 +437,35 @@ class TestNonAdherentCases:
         assert result["cases"][0]["guidelines_not_followed"] == [
             "Physiotherapy referral",
         ]
+
+    @pytest.mark.asyncio
+    async def test_new_format_includes_fields(self, async_session):
+        """New format cases should include judgement, confidence, and cited text."""
+        p = _make_patient(async_session, "P1")
+        await _add_completed_result(async_session, p, 0.25, [
+            {"diagnosis": "Knee pain", "score": -1, "judgement": "NON-COMPLIANT",
+             "confidence": 0.9, "cited_guideline_text": "Exercise therapy recommended.",
+             "explanation": "No physio referral",
+             "guidelines_not_followed": ["Physiotherapy referral"]},
+            {"diagnosis": "Hip pain", "score": -2, "judgement": "RISKY NON-COMPLIANT",
+             "confidence": 0.95, "cited_guideline_text": "Do not offer opioids.",
+             "explanation": "Opioids prescribed",
+             "guidelines_not_followed": ["Avoid opioids"]},
+        ])
+
+        result = await get_non_adherent_cases(async_session)
+        assert result["total"] == 2
+
+        knee = next(c for c in result["cases"] if c["diagnosis"] == "Knee pain")
+        assert knee["score"] == -1
+        assert knee["judgement"] == "NON-COMPLIANT"
+        assert knee["confidence"] == 0.9
+        assert knee["cited_guideline_text"] == "Exercise therapy recommended."
+
+        hip = next(c for c in result["cases"] if c["diagnosis"] == "Hip pain")
+        assert hip["score"] == -2
+        assert hip["judgement"] == "RISKY NON-COMPLIANT"
+        assert hip["confidence"] == 0.95
 
     @pytest.mark.asyncio
     async def test_no_non_adherent(self, async_session):
@@ -548,3 +609,75 @@ class TestScoreDistribution:
 
         dist = await get_score_distribution(async_session, job_id=job.id)
         assert dist["total"] == 1
+
+
+# ── Test: compute_system_metrics ─────────────────────────────────────
+
+
+class TestComputeSystemMetrics:
+
+    @pytest.mark.asyncio
+    async def test_class_distribution(self, async_session):
+        """Score class distribution should count each level correctly."""
+        p = _make_patient(async_session, "P1")
+        job = await _make_job(async_session)
+        await _add_completed_result(async_session, p, 0.5, [
+            {"diagnosis": "A", "score": 2, "judgement": "Compliant", "confidence": 0.9},
+            {"diagnosis": "B", "score": 1, "judgement": "Partial", "confidence": 0.7},
+            {"diagnosis": "C", "score": 0, "judgement": "Not Relevant", "confidence": 0.5},
+            {"diagnosis": "D", "score": -1, "judgement": "Non-compliant", "confidence": 0.8},
+            {"diagnosis": "E", "score": -2, "judgement": "Risky", "confidence": 0.6},
+        ], job_id=job.id)
+        await async_session.flush()
+
+        metrics = await compute_system_metrics(async_session, job.id)
+        assert metrics["score_class_distribution"] == {
+            "+2": 1, "+1": 1, "0": 1, "-1": 1, "-2": 1,
+        }
+        assert metrics["total_diagnoses"] == 5
+
+    @pytest.mark.asyncio
+    async def test_adherence_rate(self, async_session):
+        """Adherence rate excludes not_relevant and errors."""
+        p = _make_patient(async_session, "P1")
+        job = await _make_job(async_session)
+        await _add_completed_result(async_session, p, 0.5, [
+            {"diagnosis": "A", "score": 2, "judgement": "Compliant", "confidence": 0.9},
+            {"diagnosis": "B", "score": 1, "judgement": "Partial", "confidence": 0.8},
+            {"diagnosis": "C", "score": 0, "judgement": "Not Relevant", "confidence": 0.5},
+            {"diagnosis": "D", "score": -1, "judgement": "Non-compliant", "confidence": 0.7},
+        ], job_id=job.id)
+        await async_session.flush()
+
+        metrics = await compute_system_metrics(async_session, job.id)
+        # adherent=2 (compliant+partial), total_scored=3 (excl not_relevant)
+        assert metrics["adherence_rate"] == pytest.approx(2 / 3, abs=0.01)
+
+    @pytest.mark.asyncio
+    async def test_confidence_stats(self, async_session):
+        """Confidence stats should compute mean, median, min, max, std."""
+        p = _make_patient(async_session, "P1")
+        job = await _make_job(async_session)
+        await _add_completed_result(async_session, p, 0.5, [
+            {"diagnosis": "A", "score": 1, "judgement": "Partial", "confidence": 0.6},
+            {"diagnosis": "B", "score": -1, "judgement": "Non-compliant", "confidence": 0.8},
+        ], job_id=job.id)
+        await async_session.flush()
+
+        metrics = await compute_system_metrics(async_session, job.id)
+        conf = metrics["confidence_stats"]
+        assert conf["mean"] == pytest.approx(0.7, abs=0.01)
+        assert conf["median"] == pytest.approx(0.7, abs=0.01)
+        assert conf["min"] == pytest.approx(0.6, abs=0.01)
+        assert conf["max"] == pytest.approx(0.8, abs=0.01)
+
+    @pytest.mark.asyncio
+    async def test_empty_job(self, async_session):
+        """Empty job should return zero counts."""
+        job = await _make_job(async_session)
+        await async_session.flush()
+
+        metrics = await compute_system_metrics(async_session, job.id)
+        assert metrics["total_patients"] == 0
+        assert metrics["total_diagnoses"] == 0
+        assert metrics["adherence_rate"] == 0.0

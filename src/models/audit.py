@@ -61,6 +61,10 @@ class AuditJob(Base, TimestampMixin):
         Text, nullable=True,
         comment="Error details if the job failed",
     )
+    provider: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True,
+        comment="AI provider used for this job (openai, ollama, etc.)",
+    )
 
     # Relationships
     results: Mapped[list["AuditResult"]] = relationship(

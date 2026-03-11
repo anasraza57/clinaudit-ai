@@ -63,12 +63,14 @@ class BatchAcceptedResponse(BaseModel):
     status: str = "accepted"
     job_id: int
     total_patients: int
+    provider: str = Field(description="AI provider used for this job")
     message: str
 
 
 class JobStatusResponse(BaseModel):
     job_id: int
     status: str = Field(description="pending | running | completed | failed")
+    provider: str | None = Field(None, description="AI provider used for this job")
     total_patients: int
     processed_patients: int
     failed_patients: int
@@ -202,7 +204,7 @@ async def start_batch_audit(
     background_tasks: BackgroundTasks,
     limit: int | None = Query(None, ge=1, description="Maximum number of patients to audit (default: all)"),
     pat_ids: list[str] | None = Query(None, description="Specific patient IDs to audit (default: all)"),
-    skip_audited: bool = Query(False, description="Skip patients that already have a completed audit result"),
+    skip_audited: bool = Query(False, description="Skip patients already audited by the current AI provider"),
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -216,16 +218,21 @@ async def start_batch_audit(
     - Use `limit` to audit a random subset (e.g. `?limit=50`)
     - Use `pat_ids` to audit specific patients
     - Use `skip_audited=true` to only audit patients without a completed result
-      (useful for incremental batches — run `?limit=10&skip_audited=true` repeatedly)
+      **for the current AI provider** (so switching from OpenAI to Ollama won't
+      skip patients — each provider's audits are tracked independently)
 
     Each patient is processed through the full 4-agent pipeline.
     Progress is committed every 10 patients.
     """
     # Subquery: patient IDs that already have a completed audit result
+    # for the CURRENT provider — switching providers won't skip patients
+    current_provider = get_settings().ai_provider
     already_audited_subq = (
         select(Patient.id)
         .join(AuditResult, AuditResult.patient_id == Patient.id)
+        .join(AuditJob, AuditResult.job_id == AuditJob.id)
         .where(AuditResult.status == "completed")
+        .where(AuditJob.provider == current_provider)
     )
 
     # Resolve patient IDs
@@ -268,6 +275,7 @@ async def start_batch_audit(
         total_patients=len(ids),
         processed_patients=0,
         failed_patients=0,
+        provider=current_provider,
     )
     session.add(job)
     await session.flush()
@@ -280,6 +288,7 @@ async def start_batch_audit(
         "status": "accepted",
         "job_id": job_id,
         "total_patients": len(ids),
+        "provider": current_provider,
         "message": f"Batch audit started. Poll GET /api/v1/audit/jobs/{job_id} for status.",
     }
 
@@ -470,6 +479,7 @@ async def get_job_status(
     return JobStatusResponse(
         job_id=job.id,
         status=job.status,
+        provider=job.provider,
         total_patients=job.total_patients,
         processed_patients=job.processed_patients,
         failed_patients=job.failed_patients,
