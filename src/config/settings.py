@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     )
 
     # ── Application ──────────────────────────────────────────────
-    app_name: str = "GuidelineGuard"
+    app_name: str = "ClinAuditAI"
     app_env: Literal["development", "staging", "production"] = "development"
     app_debug: bool = True
     app_host: str = "0.0.0.0"
@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     # ── Database ─────────────────────────────────────────────────
     db_host: str = "db"
     db_port: int = 5432
-    db_name: str = "guideline_guard"
+    db_name: str = "clinaudit_ai"
     db_user: str = "gg_user"
     db_password: str = "changeme_in_production"
 
@@ -97,9 +97,29 @@ class Settings(BaseSettings):
     openai_request_timeout: float = 60.0       # seconds per LLM request
     pipeline_patient_timeout: float = 300.0    # seconds per patient (5 min)
 
+    # ── Concurrency ───────────────────────────────────────────────
+    batch_concurrency: int = 5                 # patients processed in parallel
+
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"
+
+
+    def model_name_for_provider(self, provider: str | None) -> str:
+        """Return the human-readable model name for a provider key.
+
+        Handles both old DB values ("openai", "ollama") and already-resolved
+        model names ("gpt-4o-mini", "mistral-small") gracefully.
+        """
+        if not provider:
+            return "Unknown"
+        _map = {
+            "openai": self.openai_model,
+            "ollama": self.ollama_model,
+            "local": self.ollama_model,
+            "anthropic": self.anthropic_model,
+        }
+        return _map.get(provider, provider)
 
 
 @lru_cache()

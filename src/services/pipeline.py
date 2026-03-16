@@ -272,7 +272,7 @@ class AuditPipeline:
             processed_patients=0,
             failed_patients=0,
             started_at=datetime.now(timezone.utc),
-            provider=get_settings().ai_provider,
+            provider=get_settings().model_name_for_provider(get_settings().ai_provider),
         )
         session.add(job)
         await session.flush()

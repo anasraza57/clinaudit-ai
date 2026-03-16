@@ -63,14 +63,14 @@ class BatchAcceptedResponse(BaseModel):
     status: str = "accepted"
     job_id: int
     total_patients: int
-    provider: str = Field(description="AI provider used for this job")
+    model: str = Field(description="LLM model used for this job (e.g. gpt-4o-mini)")
     message: str
 
 
 class JobStatusResponse(BaseModel):
     job_id: int
     status: str = Field(description="pending | running | completed | failed")
-    provider: str | None = Field(None, description="AI provider used for this job")
+    model: str | None = Field(None, description="LLM model used for this job")
     total_patients: int
     processed_patients: int
     failed_patients: int
@@ -205,6 +205,7 @@ async def start_batch_audit(
     limit: int | None = Query(None, ge=1, description="Maximum number of patients to audit (default: all)"),
     pat_ids: list[str] | None = Query(None, description="Specific patient IDs to audit (default: all)"),
     skip_audited: bool = Query(False, description="Skip patients already audited by the current AI provider"),
+    match_model: str | None = Query(None, description="Only audit patients already audited by this model (e.g. gpt-4.1-mini)"),
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -218,22 +219,36 @@ async def start_batch_audit(
     - Use `limit` to audit a random subset (e.g. `?limit=50`)
     - Use `pat_ids` to audit specific patients
     - Use `skip_audited=true` to only audit patients without a completed result
-      **for the current AI provider** (so switching from OpenAI to Ollama won't
-      skip patients — each provider's audits are tracked independently)
+      **for the current AI model**
+    - Use `match_model` to only audit patients already audited by another model
+      (e.g. `?match_model=gpt-4.1-mini&skip_audited=true` to audit the same patients
+      with the current model for cross-model comparison)
 
     Each patient is processed through the full 4-agent pipeline.
     Progress is committed every 10 patients.
     """
     # Subquery: patient IDs that already have a completed audit result
-    # for the CURRENT provider — switching providers won't skip patients
-    current_provider = get_settings().ai_provider
+    # for the CURRENT model — switching models won't skip patients
+    settings = get_settings()
+    current_model = settings.model_name_for_provider(settings.ai_provider)
     already_audited_subq = (
         select(Patient.id)
         .join(AuditResult, AuditResult.patient_id == Patient.id)
         .join(AuditJob, AuditResult.job_id == AuditJob.id)
         .where(AuditResult.status == "completed")
-        .where(AuditJob.provider == current_provider)
+        .where(AuditJob.provider.in_([settings.ai_provider, current_model]))
     )
+
+    # Subquery: patients already audited by the match_model
+    match_model_subq = None
+    if match_model is not None:
+        match_model_subq = (
+            select(Patient.id)
+            .join(AuditResult, AuditResult.patient_id == Patient.id)
+            .join(AuditJob, AuditResult.job_id == AuditJob.id)
+            .where(AuditResult.status == "completed")
+            .where(AuditJob.provider == match_model)
+        )
 
     # Resolve patient IDs
     if pat_ids is not None:
@@ -250,17 +265,20 @@ async def start_batch_audit(
                 detail=f"Patients not found: {sorted(missing)[:10]}",
             )
         # Filter out already-audited if requested
+        filter_q = select(Patient.pat_id).where(Patient.pat_id.in_(ids))
         if skip_audited:
-            result = await session.execute(
-                select(Patient.pat_id)
-                .where(Patient.pat_id.in_(ids))
-                .where(~Patient.id.in_(already_audited_subq))
-            )
+            filter_q = filter_q.where(~Patient.id.in_(already_audited_subq))
+        if match_model_subq is not None:
+            filter_q = filter_q.where(Patient.id.in_(match_model_subq))
+        if skip_audited or match_model_subq is not None:
+            result = await session.execute(filter_q)
             ids = [row[0] for row in result.all()]
     else:
         query = select(Patient.pat_id)
         if skip_audited:
             query = query.where(~Patient.id.in_(already_audited_subq))
+        if match_model_subq is not None:
+            query = query.where(Patient.id.in_(match_model_subq))
         if limit is not None:
             query = query.limit(limit)
         result = await session.execute(query)
@@ -275,7 +293,7 @@ async def start_batch_audit(
         total_patients=len(ids),
         processed_patients=0,
         failed_patients=0,
-        provider=current_provider,
+        provider=current_model,
     )
     session.add(job)
     await session.flush()
@@ -288,7 +306,7 @@ async def start_batch_audit(
         "status": "accepted",
         "job_id": job_id,
         "total_patients": len(ids),
-        "provider": current_provider,
+        "model": current_model,
         "message": f"Batch audit started. Poll GET /api/v1/audit/jobs/{job_id} for status.",
     }
 
@@ -329,61 +347,74 @@ async def _run_batch_background(job_id: int, pat_ids: list[str]) -> None:
     async with factory() as session:
         await pipeline.load_categories_from_db(session)
 
-    # ── Process patients (one session per patient) ────────────────
+    # ── Process patients concurrently ──────────────────────────────
+    concurrency = settings.batch_concurrency
+    semaphore = asyncio.Semaphore(concurrency)
     failed_count = 0
     processed = 0
+    async def _process_one(i: int, pat_id: str) -> bool:
+        """Process a single patient behind the semaphore. Returns True if failed."""
+        async with semaphore:
+            try:
+                async with factory() as session:
+                    pipeline_result = await asyncio.wait_for(
+                        pipeline.run_single(session, pat_id, job_id=job_id),
+                        timeout=patient_timeout,
+                    )
+                    await session.commit()
+                    failed = not pipeline_result.success
+                    return failed
 
-    for i, pat_id in enumerate(pat_ids, 1):
-        try:
-            # Fresh session per patient — identity map is discarded on exit,
-            # keeping memory usage constant regardless of batch size.
-            async with factory() as session:
-                pipeline_result = await asyncio.wait_for(
-                    pipeline.run_single(session, pat_id, job_id=job_id),
-                    timeout=patient_timeout,
+            except asyncio.TimeoutError:
+                logger.error(
+                    "Batch job %d: patient %s timed out after %ds",
+                    job_id, pat_id, int(patient_timeout),
                 )
-                if not pipeline_result.success:
-                    failed_count += 1
-
-                # Update progress atomically with the patient result
-                job_row = await session.execute(
-                    select(AuditJob).where(AuditJob.id == job_id)
+                await _save_patient_error_and_progress(
+                    factory, pat_id, job_id,
+                    f"Pipeline timed out after {int(patient_timeout)}s",
+                    i, 0,  # failed_count updated by caller
                 )
-                job_obj = job_row.scalar_one()
-                job_obj.processed_patients = i
-                job_obj.failed_patients = failed_count
-                await session.commit()
+                return True
 
-        except asyncio.TimeoutError:
-            failed_count += 1
-            logger.error(
-                "Batch job %d: patient %s timed out after %ds",
-                job_id, pat_id, int(patient_timeout),
-            )
-            await _save_patient_error_and_progress(
-                factory, pat_id, job_id,
-                f"Pipeline timed out after {int(patient_timeout)}s",
-                i, failed_count,
-            )
+            except Exception as e:
+                logger.error(
+                    "Batch job %d: patient %s failed: %s", job_id, pat_id, e,
+                )
+                await _save_patient_error_and_progress(
+                    factory, pat_id, job_id,
+                    str(e)[:500], i, 0,
+                )
+                return True
 
-        except Exception as e:
-            failed_count += 1
-            logger.error(
-                "Batch job %d: patient %s failed: %s", job_id, pat_id, e,
-            )
-            await _save_patient_error_and_progress(
-                factory, pat_id, job_id,
-                str(e)[:500], i, failed_count,
-            )
+    # Process in chunks to allow periodic progress updates
+    total = len(pat_ids)
+    chunk_size = concurrency * 2  # process in waves for progress reporting
+    for start in range(0, total, chunk_size):
+        chunk = pat_ids[start : start + chunk_size]
+        tasks = [
+            _process_one(start + j + 1, pid)
+            for j, pid in enumerate(chunk)
+        ]
+        results = await asyncio.gather(*tasks)
+        failed_count += sum(1 for f in results if f)
+        processed = start + len(chunk)
 
-        processed = i
-
-        if i % 10 == 0:
-            logger.info(
-                "Batch job %d: %d/%d patients (%d failed)",
-                job_id, i, len(pat_ids), failed_count,
+        # Update job progress after each chunk
+        async with factory() as session:
+            job_row = await session.execute(
+                select(AuditJob).where(AuditJob.id == job_id)
             )
-            gc.collect()
+            job_obj = job_row.scalar_one()
+            job_obj.processed_patients = processed
+            job_obj.failed_patients = failed_count
+            await session.commit()
+
+        logger.info(
+            "Batch job %d: %d/%d patients (%d failed)",
+            job_id, processed, total, failed_count,
+        )
+        gc.collect()
 
     # ── Finalise job ──────────────────────────────────────────────
     try:
@@ -479,7 +510,7 @@ async def get_job_status(
     return JobStatusResponse(
         job_id=job.id,
         status=job.status,
-        provider=job.provider,
+        model=get_settings().model_name_for_provider(job.provider),
         total_patients=job.total_patients,
         processed_patients=job.processed_patients,
         failed_patients=job.failed_patients,
@@ -538,7 +569,7 @@ async def get_job_results(
     if status is not None:
         results_q = results_q.where(AuditResult.status == status)
     result = await session.execute(
-        results_q.order_by(AuditResult.id)
+        results_q.order_by(Patient.pat_id, AuditResult.id)
         .offset(offset)
         .limit(page_size)
     )

@@ -219,8 +219,8 @@ class TestCompareJobs:
         result = await compare_jobs(async_session, job_a.id, job_b.id)
 
         assert isinstance(result, ComparisonResult)
-        assert result.job_a_provider == "openai"
-        assert result.job_b_provider == "ollama"
+        assert result.job_a_model == "gpt-4.1-mini"
+        assert result.job_b_model == "mistral-small"
         assert result.total_patients_compared == 1
         assert len(result.patients) == 1
 
@@ -526,5 +526,5 @@ class TestCrossModelClassification:
         result = await compute_cross_model_classification(
             async_session, job_a.id, job_b.id,
         )
-        assert result["job_a_provider"] == "openai"
-        assert result["job_b_provider"] == "ollama"
+        assert result["job_a_model"] == "gpt-4.1-mini"
+        assert result["job_b_model"] == "mistral-small"

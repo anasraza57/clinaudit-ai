@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.models.audit import AuditResult
+from src.models.audit import AuditJob, AuditResult
 from src.models.database import get_session
 from src.services.comparison import compare_jobs, compute_cross_model_classification
 from src.services.evaluation import (
@@ -60,10 +60,10 @@ class ConditionComparisonItem(BaseModel):
 
 
 class ComparisonResponse(BaseModel):
-    job_a_id: int
-    job_b_id: int
-    job_a_provider: str | None = Field(description="AI provider used for job A")
-    job_b_provider: str | None = Field(description="AI provider used for job B")
+    job_a_id: int | None = None
+    job_b_id: int | None = None
+    job_a_model: str | None = Field(description="Model used for job A (e.g. gpt-4o-mini)")
+    job_b_model: str | None = Field(description="Model used for job B (e.g. mistral-small)")
     total_patients_compared: int
     mean_score_a: float
     mean_score_b: float
@@ -81,22 +81,37 @@ class ComparisonResponse(BaseModel):
 @router.get(
     "/compare",
     response_model=ComparisonResponse,
-    summary="Compare two batch jobs",
+    summary="Compare two batch jobs or models",
 )
 async def compare_models(
-    job_a: int = Query(..., description="First job ID"),
-    job_b: int = Query(..., description="Second job ID"),
+    job_a: int | None = Query(None, description="First job ID"),
+    job_b: int | None = Query(None, description="Second job ID"),
+    model_a: str | None = Query(None, description="First model name (e.g. gpt-4.1-mini)"),
+    model_b: str | None = Query(None, description="Second model name (e.g. mistral-small)"),
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Compare audit results from two different batch jobs side-by-side.
+    Compare audit results from two different batch jobs or models side-by-side.
 
-    Typically used to compare different AI providers (e.g., OpenAI vs Ollama)
-    on the same patient set. Returns per-patient score differences,
-    agreement metrics (Cohen's kappa), and per-condition breakdown.
+    **Usage options:**
+    - By job: `?job_a=1&job_b=2`
+    - By model: `?model_a=gpt-4.1-mini&model_b=mistral-small`
+    - Mixed: `?job_a=1&model_b=mistral-small`
+
+    When using model names, results are aggregated across all jobs for that model.
+    Returns per-patient score differences, agreement metrics (Cohen's kappa),
+    and per-condition breakdown.
     """
+    if job_a is None and model_a is None:
+        raise HTTPException(status_code=400, detail="Provide either job_a or model_a")
+    if job_b is None and model_b is None:
+        raise HTTPException(status_code=400, detail="Provide either job_b or model_b")
+
     try:
-        result = await compare_jobs(session, job_a, job_b)
+        result = await compare_jobs(
+            session, job_a_id=job_a, job_b_id=job_b,
+            model_a=model_a, model_b=model_b,
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -139,17 +154,18 @@ class MissingCareResponse(BaseModel):
 )
 async def missing_care_opportunities(
     job_id: int | None = Query(None, description="Scope to a specific batch job"),
+    model: str | None = Query(None, description="Scope by model name (e.g. gpt-4.1-mini)"),
     min_count: int = Query(1, ge=1, description="Minimum occurrences to include"),
     session: AsyncSession = Depends(get_session),
 ):
     """
     Identify NICE-recommended actions NOT documented in patient records.
 
-    Surfaces care gaps — things guidelines recommend but the GP did not
+    Surfaces care gaps -- things guidelines recommend but the GP did not
     document. Grouped by condition for pattern identification. Useful for
     identifying systematic quality improvement opportunities.
     """
-    return await get_missing_care_summary(session, job_id, min_count)
+    return await get_missing_care_summary(session, job_id, min_count, model=model)
 
 
 # ── LLM-as-Judge Scorer Evaluation schemas ───────────────────────────
@@ -174,7 +190,8 @@ class ScorerPatientEvalItem(BaseModel):
 
 
 class ScorerEvaluationResponse(BaseModel):
-    job_id: int
+    job_id: int | None = None
+    model: str | None = None
     total_patients: int
     total_diagnoses: int
     mean_reasoning_quality: float = Field(
@@ -190,46 +207,87 @@ class ScorerEvaluationResponse(BaseModel):
 
 
 @router.post(
-    "/evaluate/scorer/{job_id}",
+    "/evaluate/scorer",
     response_model=ScorerEvaluationResponse,
     summary="Evaluate scorer using LLM-as-Judge",
 )
 async def evaluate_scorer_endpoint(
-    job_id: int,
+    job_id: int | None = Query(None, description="Batch job ID"),
+    model: str | None = Query(None, description="Model name (e.g. gpt-4.1-mini)"),
     limit: int = Query(
         5, ge=1, le=50,
         description="Max patients to evaluate (each costs LLM calls)",
+    ),
+    offset: int = Query(
+        0, ge=0,
+        description=(
+            "Skip first N patients (sorted by pat_id). "
+            "Use offset=0&limit=20, then offset=20&limit=10 for next batch."
+        ),
     ),
     session: AsyncSession = Depends(get_session),
 ):
     """
     Evaluate the scorer agent's output quality using LLM-as-Judge.
 
-    Loads stored scoring results from a completed batch job and sends
-    each diagnosis to a separate LLM call for quality assessment.
-    Rates reasoning quality, citation accuracy, and score calibration
-    (all 1-5). Does NOT re-run the pipeline — works from stored data.
+    **Usage options:**
+    - By job: `?job_id=1`
+    - By model: `?model=gpt-4.1-mini`
+    - Page through: `?model=gpt-4.1-mini&offset=20&limit=10`
+
+    Results are **sorted by pat_id** so the same limit/offset gives the
+    same patients across different models — enabling fair cross-model comparison.
+
+    Loads stored scoring results and sends each diagnosis to a separate
+    LLM call for quality assessment. Rates reasoning quality, citation
+    accuracy, and score calibration (all 1-5).
+    """
+    if job_id is None and model is None:
+        raise HTTPException(status_code=400, detail="Provide either job_id or model")
+    return await _evaluate_scorer_impl(
+        session, limit, offset=offset, job_id=job_id, model=model,
+    )
+
+
+async def _evaluate_scorer_impl(
+    session: AsyncSession,
+    limit: int,
+    offset: int = 0,
+    job_id: int | None = None,
+    model: str | None = None,
+) -> dict:
+    """Shared implementation for scorer evaluation by job or model.
+
+    Results are sorted deterministically by pat_id so the same
+    offset/limit yields the same patients across different models.
     """
     from src.ai.factory import get_ai_provider
+    from src.models.patient import Patient
 
     query = (
         select(AuditResult)
-        .where(
-            AuditResult.status == "completed",
-            AuditResult.job_id == job_id,
-        )
+        .join(Patient, AuditResult.patient_id == Patient.id)
+        .where(AuditResult.status == "completed")
         .options(selectinload(AuditResult.patient))
     )
+    if job_id is not None:
+        query = query.where(AuditResult.job_id == job_id)
+    elif model is not None:
+        job_ids_q = select(AuditJob.id).where(AuditJob.provider == model)
+        query = query.where(AuditResult.job_id.in_(job_ids_q))
+
+    # Deterministic ordering by pat_id for cross-model consistency
+    query = query.order_by(Patient.pat_id).offset(offset).limit(limit)
+
     result = await session.execute(query)
     results = list(result.scalars().all())
 
     if not results:
+        detail = f"job {job_id}" if job_id else f"model '{model}'"
         raise HTTPException(
             status_code=404,
-            detail=f"No completed results for job {job_id}",
+            detail=f"No completed results for {detail} (offset={offset})",
         )
-
-    results = results[:limit]
     ai_provider = get_ai_provider()
 
     per_patient: list[dict] = []
@@ -272,6 +330,7 @@ async def evaluate_scorer_endpoint(
     n = len(all_reasoning)
     return {
         "job_id": job_id,
+        "model": model,
         "total_patients": len(per_patient),
         "total_diagnoses": total_diagnoses,
         "mean_reasoning_quality": (
@@ -299,7 +358,7 @@ class ConfidenceStatsSchema(BaseModel):
 
 
 class SystemMetricsResponse(BaseModel):
-    job_id: int
+    job_id: int | None = None
     total_patients: int
     total_diagnoses: int
     score_class_distribution: dict[str, int] = Field(
@@ -319,17 +378,18 @@ class SystemMetricsResponse(BaseModel):
     summary="System-level metrics for a job",
 )
 async def system_metrics(
-    job_id: int = Query(..., description="Batch job ID"),
+    job_id: int | None = Query(None, description="Batch job ID"),
+    model: str | None = Query(None, description="Scope by model name (e.g. gpt-4.1-mini)"),
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Comprehensive system-level evaluation metrics for a batch job.
+    Comprehensive system-level evaluation metrics for a batch job or model.
 
     Returns score class distribution (+2 to -2), adherence rate,
     confidence statistics, and per-class counts. Computed entirely
-    from stored data — no LLM calls needed.
+    from stored data -- no LLM calls needed.
     """
-    return await compute_system_metrics(session, job_id)
+    return await compute_system_metrics(session, job_id, model=model)
 
 
 # ── Cross-Model Classification Metrics ───────────────────────────────
@@ -348,10 +408,10 @@ class ClassMetricsSchema(BaseModel):
 
 
 class CrossModelMetricsResponse(BaseModel):
-    job_a_id: int
-    job_b_id: int
-    job_a_provider: str | None
-    job_b_provider: str | None
+    job_a_id: int | None = None
+    job_b_id: int | None = None
+    job_a_model: str | None = Field(description="Model used for job A")
+    job_b_model: str | None = Field(description="Model used for job B")
     total_diagnoses_compared: int
     confusion_matrix: ConfusionMatrixSchema
     per_class_metrics: dict[str, ClassMetricsSchema]
@@ -373,19 +433,33 @@ class CrossModelMetricsResponse(BaseModel):
     summary="Cross-model classification metrics",
 )
 async def cross_model_metrics(
-    job_a: int = Query(..., description="First job ID (Model A)"),
-    job_b: int = Query(..., description="Second job ID (Model B)"),
+    job_a: int | None = Query(None, description="First job ID (Model A)"),
+    job_b: int | None = Query(None, description="Second job ID (Model B)"),
+    model_a: str | None = Query(None, description="First model name (e.g. gpt-4.1-mini)"),
+    model_b: str | None = Query(None, description="Second model name (e.g. mistral-small)"),
     session: AsyncSession = Depends(get_session),
 ):
     """
     Enhanced cross-model comparison with confusion matrix and classification metrics.
 
+    **Usage options:**
+    - By job: `?job_a=1&job_b=2`
+    - By model: `?model_a=gpt-4.1-mini&model_b=mistral-small`
+
     Returns a 5×5 confusion matrix, per-class precision/recall/F1,
     Cohen's kappa at both 5-class and 3-class levels, exact-match
     accuracy, and AUROC. Computed from stored data — no LLM calls.
     """
+    if job_a is None and model_a is None:
+        raise HTTPException(status_code=400, detail="Provide either job_a or model_a")
+    if job_b is None and model_b is None:
+        raise HTTPException(status_code=400, detail="Provide either job_b or model_b")
+
     try:
-        return await compute_cross_model_classification(session, job_a, job_b)
+        return await compute_cross_model_classification(
+            session, job_a_id=job_a, job_b_id=job_b,
+            model_a=model_a, model_b=model_b,
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -450,6 +524,7 @@ class RetrieverIRMetrics(BaseModel):
 
 
 class AgentEvaluationResponse(BaseModel):
+    model: str | None = Field(None, description="Model used for pipeline + judge")
     total_patients: int
     extractor: dict | None = None
     query: dict | None = None
@@ -465,16 +540,39 @@ class AgentEvaluationResponse(BaseModel):
     summary="Full agent evaluation (runs pipeline)",
 )
 async def evaluate_agents(
+    model: str | None = Query(
+        None,
+        description=(
+            "Model name to run the pipeline with (e.g. gpt-4.1-mini, mistral-small). "
+            "Defaults to the AI_PROVIDER configured in .env."
+        ),
+    ),
     limit: int = Query(
-        5, ge=1, le=20,
+        5, ge=1, le=50,
         description="Max patients to evaluate (each runs full pipeline + LLM judge)",
+    ),
+    offset: int = Query(
+        0, ge=0,
+        description=(
+            "Skip first N patients (sorted by pat_id). "
+            "Use offset=0&limit=5, then offset=5&limit=5 for next batch."
+        ),
     ),
     session: AsyncSession = Depends(get_session),
 ):
     """
     Evaluate all 4 pipeline agents by running the pipeline on a sample.
 
-    Picks random patients, runs the complete pipeline, then evaluates:
+    **Usage options:**
+    - Default provider: `?limit=5`
+    - Specific model: `?model=gpt-4.1-mini&limit=5`
+    - Page through: `?model=mistral-small&offset=5&limit=5`
+
+    Patients are **sorted by pat_id** so the same offset/limit gives
+    deterministic, resumable evaluation across calls. Pass the same
+    `model` parameter to compare agents across different models.
+
+    Evaluates:
     - Extractor: precision/recall/F1 per SNOMED category
     - Query Generator: relevance and coverage (1-5)
     - Retriever: per-guideline relevance + Precision@k, nDCG, MRR
@@ -482,7 +580,12 @@ async def evaluate_agents(
 
     **Expensive**: each patient requires multiple LLM calls.
     """
-    from src.ai.factory import get_ai_provider
-
-    ai_provider = get_ai_provider()
-    return await run_agent_evaluation(session, ai_provider, limit)
+    if model:
+        from src.ai.factory import get_ai_provider_for_model
+        ai_provider = get_ai_provider_for_model(model)
+    else:
+        from src.ai.factory import get_ai_provider
+        ai_provider = get_ai_provider()
+    return await run_agent_evaluation(
+        session, ai_provider, limit, offset=offset, model=model,
+    )

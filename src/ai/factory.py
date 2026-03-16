@@ -42,6 +42,28 @@ _PROVIDERS: dict[str, callable] = {
 }
 
 
+# Model-name prefixes that map to the OpenAI provider.
+_OPENAI_PREFIXES = ("gpt-", "o1-", "o3-", "o4-", "text-embedding", "chatgpt")
+
+
+def get_ai_provider_for_model(model: str) -> AIProvider:
+    """
+    Create an AI provider appropriate for the given model name.
+
+    Detects the provider type from the model name prefix:
+    - ``gpt-*``, ``o1-*``, ``o3-*`` → OpenAI
+    - Everything else → Ollama
+
+    Unlike ``get_ai_provider()`` this is **not** cached — it creates
+    a fresh instance each time so the caller can use it independently.
+    """
+    if any(model.startswith(p) for p in _OPENAI_PREFIXES):
+        logger.info("Creating OpenAI provider for model: %s", model)
+        return _create_openai_provider()
+    logger.info("Creating Ollama provider for model: %s", model)
+    return _create_ollama_provider()
+
+
 @lru_cache()
 def get_ai_provider() -> AIProvider:
     """

@@ -1,7 +1,7 @@
-# PROJECT BIBLE — GuidelineGuard
+# PROJECT BIBLE — ClinAuditAI
 
-> **Last Updated:** 2026-03-11
-> **Status:** Phase 9 COMPLETE + Phase 10a Retriever Relevance Filter ✅ + Phase 10b Comprehensive Evaluation Endpoints ✅ + Phase 10c Comparison HTML Report ✅ — All evaluation results generated, supervisor report ready
+> **Last Updated:** 2026-03-16
+> **Status:** Phase 9 COMPLETE + Phase 10a Retriever Relevance Filter ✅ + Phase 10b Comprehensive Evaluation Endpoints ✅ + Phase 10c Comparison HTML Report ✅ + Deterministic evaluation ordering ✅ + Phase 11d Comprehensive Individual Reports ✅ — Individual HTML reports now include all evaluation sections (system metrics, extractor, scorer eval, agent eval, missing care) with `use_saved_evals` support
 
 ---
 
@@ -64,7 +64,7 @@ A system that can:
 
 ### Origin
 
-This project builds upon the **GuidelineGuard** framework (Shahriyear, 2024) and two MSc dissertations from Keele University:
+This project builds upon the **ClinAuditAI** framework (Shahriyear, 2024) and two MSc dissertations from Keele University:
 - **Hiruni Vidanapathirana** — built the Extractor + Query agents
 - **Cyprian Toroitich** — built the Retriever + Scorer agents
 
@@ -74,7 +74,7 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 
 ## 2. Reference Codebases Analysis
 
-### 2A. GuidelineGuard Paper (Shahriyear, 2024)
+### 2A. ClinAuditAI Paper (Shahriyear, 2024)
 
 **What it is:** The foundational IEEE paper that defines the 4-agent architecture.
 
@@ -235,7 +235,7 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        GuidelineGuard                            │
+│                        ClinAuditAI                            │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌──────────┐    ┌──────────┐    ┌───────────┐    ┌──────────┐ │
@@ -302,7 +302,7 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - [x] Verify app starts and endpoints work (9/9 tests passing)
 - [x] Create initial learning docs
 - [x] Update PROJECT_BIBLE.md
-- [x] Push to GitHub (github.com/anasraza57/guideline-guard)
+- [x] Push to GitHub (github.com/anasraza57/clinaudit-ai)
 
 ### Phase 1: Data Layer ✅ COMPLETE
 - [x] Set up database connection (SQLAlchemy async engine + session)
@@ -468,7 +468,7 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - ✅ Create initial learning docs — glossary, project overview, architecture (2026-03-01)
 - ✅ Copy reference data files into data/ directory (2026-03-01)
 - ✅ Create .env.example, .gitignore, README.md, Makefile (2026-03-01)
-- ✅ Push to GitHub — github.com/anasraza57/guideline-guard (2026-03-01)
+- ✅ Push to GitHub — github.com/anasraza57/clinaudit-ai (2026-03-01)
 - ✅ Final PROJECT_BIBLE.md update for Phase 0 (2026-03-01)
 
 ### Phase 1: Data Layer ✅ COMPLETE
@@ -575,7 +575,7 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - ✅ `OllamaProvider` in `src/ai/ollama_provider.py` — uses OpenAI SDK with Ollama's compatible endpoint (2026-03-10)
 - ✅ Settings: `ollama_base_url`, `ollama_model`, `ollama_max_tokens`, `ollama_temperature`, `ollama_request_timeout` (2026-03-10)
 - ✅ Factory: `"ollama"` and `"local"` (alias) registered in `_PROVIDERS` dict (2026-03-10)
-- ✅ `embed()` raises clear error — GuidelineGuard uses PubMedBERT for embeddings (2026-03-10)
+- ✅ `embed()` raises clear error — ClinAuditAI uses PubMedBERT for embeddings (2026-03-10)
 - ✅ Tests — 256/256 passing (+22 new: 14 scorer + 8 ollama) (2026-03-10)
 
 ### Phase 9: Evaluation Framework 🔄 IN PROGRESS
@@ -691,17 +691,46 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - ✅ `GET /api/v1/reports/export/comparison-html` endpoint with optional `include_scorer_eval` parameter (2026-03-11)
 - ✅ `_kappa_label()` helper — human-readable Cohen's kappa interpretation (2026-03-11)
 
-**Cross-Model Judging (scorer eval with both LLMs as judges):**
-- ✅ Scorer eval Job 1 with OpenAI judge: RQ=4.57, CA=4.10, SC=4.48 (21 diagnoses) (2026-03-11)
-- ✅ Scorer eval Job 2 with OpenAI judge: RQ=4.73, CA=3.27, SC=4.67 (15 diagnoses) (2026-03-11)
-- ✅ Scorer eval Job 1 with Ollama judge: RQ=4.48, CA=4.33, SC=4.48 (21 diagnoses) (2026-03-11)
-- ✅ Scorer eval Job 2 with Ollama judge: RQ=4.60, CA=3.47, SC=4.67 (15 diagnoses) (2026-03-11)
-- ✅ Scores consistent across judges — validates judge reliability (2026-03-11)
+**Scorer Evaluation — LLM-as-Judge (100 patients, 156 diagnoses, scale 1-5):**
 
-**Full Agent Evaluation (pipeline re-run + LLM judge):**
-- ✅ Fixed `run_agent_evaluation()` — was missing `embedder` and `vector_store` args to `AuditPipeline.__init__()` (2026-03-11)
-- ✅ Agent eval with OpenAI judge (5 patients): Query rel=5.00/cov=4.31, Retriever P@k=0.453/nDCG=0.790/MRR=0.700, Scorer RQ=4.31/CA=4.38/SC=4.31 (2026-03-11)
-- ✅ Agent eval with Ollama judge (5 patients): Query rel=4.38/cov=3.62, Retriever P@k=0.360/nDCG=0.772/MRR=0.767, Scorer RQ=5.00/CA=5.00/SC=5.00 (2026-03-11)
+| Metric | mistral-small + Ollama Judge | mistral-small + OpenAI Judge | gpt-4.1-mini + Ollama Judge | gpt-4.1-mini + OpenAI Judge |
+|---|---|---|---|---|
+| Reasoning Quality | 4.58 | 4.37 | 4.75 | 4.77 |
+| Citation Accuracy | 3.81 | 3.22 | 4.56 | 4.46 |
+| Score Calibration | 4.56 | 4.51 | 4.73 | 4.79 |
+
+- ✅ 100 patients per model, same patients across models (deterministic `pat_id` ordering) (2026-03-16)
+- ✅ Both judges (Ollama/mistral-small, OpenAI/gpt-4.1-mini) evaluated both models — 4 result files (2026-03-16)
+- ✅ GPT-4.1-mini consistently outperforms, especially on citation accuracy (+0.75 to +1.24 over mistral-small) (2026-03-16)
+- ✅ Judges broadly agree on relative rankings — validates judge reliability (2026-03-16)
+
+**Full Agent Evaluation — Pipeline + LLM Judge (50 patients, 88 diagnoses):**
+
+| Metric | mistral-small | gpt-4.1-mini |
+|---|---|---|
+| Extractor match rate | 1.00 | 1.00 |
+| Query relevance (1-5) | 4.30 | 4.55 |
+| Query coverage (1-5) | 3.47 | 3.63 |
+| Retriever relevance (1-5) | 3.08 | 3.32 |
+| Retriever precision@k | 0.383 | 0.568 |
+| Retriever recall@k | 0.849 | 0.951 |
+| Retriever nDCG | 0.648 | 0.821 |
+| Retriever MRR | 0.595 | 0.793 |
+| Scorer reasoning (1-5) | 4.61 | 4.78 |
+| Scorer citation (1-5) | 3.86 | 4.32 |
+| Scorer calibration (1-5) | 4.60 | 4.77 |
+
+- ✅ 50 patients per model, same patients across models (deterministic `pat_id` ordering) (2026-03-16)
+- ✅ GPT-4.1-mini outperforms across all metrics; biggest gap in retriever IR (precision@k: 0.57 vs 0.38, nDCG: 0.82 vs 0.65) and citation accuracy (4.32 vs 3.86) (2026-03-16)
+- ✅ Extractor identical (rule-based, model-independent) (2026-03-16)
+
+**Evaluation result files (in `data/eval_results/`):**
+- `scorer_eval_mistral_small_ollama_judge_100.json` — 100 patients, 156 diagnoses
+- `scorer_eval_mistral_small_openai_judge_100.json` — 100 patients, 156 diagnoses
+- `scorer_eval_gpt4_mini_ollama_judge_100.json` — 100 patients, 156 diagnoses
+- `scorer_eval_gpt4_mini_openai_judge_100.json` — 100 patients, 156 diagnoses
+- `agents_eval_mistral_small_50.json` — 50 patients, 88 diagnoses
+- `agents_eval_gpt4_mini_50.json` — 50 patients, 88 diagnoses
 
 **Generated Reports (in `exports/supervisor-report/`):**
 - ✅ `comparison-report-full.html` — 38KB self-contained report with all sections (2026-03-11)
@@ -709,6 +738,61 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - ✅ CSV and HTML per-job reports
 
 - ✅ All tests: 371/371 passing (2026-03-11)
+
+### Phase 11b: Deterministic Evaluation Ordering & Resumable Evaluation ✅ COMPLETE
+
+**Context:** Evaluation endpoints (`evaluate/scorer` and `evaluate/agents`) previously selected random patients, making cross-model comparison unfair (different patients per model) and preventing resumable evaluation runs.
+
+**Deterministic `pat_id` sorting + `offset` parameter:**
+- ✅ `POST /api/v1/evaluation/evaluate/scorer` — changed from `POST /evaluate/scorer/{job_id}` (path param) to query-param-based endpoint (`?model=&limit=&offset=`); results sorted by deterministic `pat_id` ordering; duplicate scorer endpoint removed (2026-03-16)
+- ✅ `POST /api/v1/evaluation/evaluate/agents` — added `offset` param, changed from random patient selection to deterministic `pat_id` ordering (2026-03-16)
+- ✅ `GET /api/v1/audit/jobs/{job_id}/results` — now sorted by `pat_id` then `AuditResult.id` for stable pagination (2026-03-16)
+- ✅ `_load_results_for_scorer()` in `src/api/routes/reports.py` — uses deterministic `pat_id` sorting + offset for consistent result loading (2026-03-16)
+
+**Cross-model fair comparison:**
+- ✅ Same `offset`/`limit` values produce the same set of patients regardless of model — e.g. `?model=gpt-4.1-mini&limit=50&offset=0` and `?model=mistral-small&limit=50&offset=0` evaluate the exact same 50 patients (2026-03-16)
+
+**Resumable evaluation:**
+- ✅ First call `?model=X&offset=0&limit=20` evaluates first 20 patients; second call `?model=X&offset=20&limit=10` evaluates next 10 without re-evaluating the first 20 (2026-03-16)
+
+**Model-based filtering on all report/export endpoints:**
+- ✅ All report endpoints (`dashboard`, `conditions`, `non-adherent`, `score-distribution`) support `?model=` query param alongside `?job_id=` (2026-03-16)
+- ✅ All export endpoints (`csv`, `html`) support `?model=` query param (2026-03-16)
+- ✅ `/export/comparison-html` supports `?model_a=`/`?model_b=` params as alternative to `?job_a=`/`?job_b=` (2026-03-16)
+
+### Phase 11d: Comprehensive Individual Reports ✅ COMPLETE
+
+**Context:** Individual HTML reports (`/api/v1/reports/export/html`) previously only showed per-patient cards and basic dashboard stats. All the rich evaluation sections (system metrics, extractor quality, LLM-as-Judge scorer quality, agent-level evaluation, missing care opportunities) were only available in the comparison report. This meant you couldn't get a full single-model evaluation report without generating a comparison.
+
+**Individual HTML report now includes all evaluation sections:**
+- ✅ System Metrics section — score class distribution, adherence rate, confidence stats (2026-03-16)
+- ✅ Extractor Quality section — per-category P/R/F1 from SNOMED rules (2026-03-16)
+- ✅ LLM-as-Judge Scorer Quality section — both judges' ratings when `use_saved_evals=true` (2026-03-16)
+- ✅ Agent-Level Evaluation section — query, retriever IR, scorer metrics when `use_saved_evals=true` (2026-03-16)
+- ✅ Aggregated Missing Care Opportunities section (2026-03-16)
+
+**New section builder functions in `src/services/export.py`:**
+- ✅ `_build_system_metrics_html()` — renders system metrics table (2026-03-16)
+- ✅ `_build_extractor_html()` — renders per-category P/R/F1 table (2026-03-16)
+- ✅ `_build_scorer_eval_single_html()` — renders LLM-as-Judge scorer quality for a single model (2026-03-16)
+- ✅ `_build_agent_eval_single_html()` — renders agent-level evaluation for a single model (2026-03-16)
+- ✅ `_build_missing_care_html()` — renders aggregated missing care opportunities (2026-03-16)
+
+**Bug fixes:**
+- ✅ Fixed truncated patient IDs in comparison report's per-patient table — now shows full UUID (2026-03-16)
+- ✅ Fixed variable shadowing bug where `missing_care` local variable in patient card loop was overriding the parameter (2026-03-16)
+
+**Endpoint update:**
+- ✅ `GET /api/v1/reports/export/html` now accepts `use_saved_evals=true` query parameter to load pre-computed evaluation results from `data/eval_results/` (2026-03-16)
+
+**Regenerated reports:**
+- `exports/report-gpt4-mini.html` (3.1 MB)
+- `exports/report-mistral-small.html` (2.6 MB)
+- `exports/comparison-report-full.html` (3.4 MB)
+
+**Files changed:**
+- `src/services/export.py` — 5 new section builder functions, variable shadowing fix, truncated patient ID fix
+- `src/api/routes/reports.py` — `use_saved_evals` param on `export_html` endpoint
 
 ---
 
@@ -877,17 +961,51 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - Re-train embeddings — out of scope, PubMedBERT is good enough for most MSK queries.
 **Reasoning:** Lightweight keyword + threshold filtering catches the obvious mismatches (cancer guidelines for back pain, chest pain guidelines for carpal tunnel) without LLM cost or data pipeline changes. Novel/rare diagnoses that don't match any topic group skip the topic filter to avoid false negatives.
 
+### Decision 021: No LLM fine-tuning (2026-03-15)
+**Context:** Supervisor asked whether any data was used for fine-tuning and what data splitting strategy was followed.
+**Choice:** No fine-tuning. All LLMs (GPT-4o-mini, Mistral-Small) are used as pre-trained models with zero-shot prompting only. No train/validation/test split was applied to the data.
+**Alternatives rejected:**
+- Fine-tune scorer on gold-standard audits: Only 120 labelled cases exist (far below the thousands needed for meaningful fine-tuning). These 120 cases are more valuable as a held-out validation set to measure system accuracy than as training data.
+- Fine-tune extractor/query agent: These agents are predominantly rule-based (84% regex categorisation, template-based query generation). LLM is only a fallback for edge cases, and results are cached permanently in the database after first classification. Fine-tuning a model for a rarely-used fallback path is not justified.
+- Fine-tune a smaller model to replace the scorer LLM: Would require a large corpus of clinician-labelled audit judgements (input: patient record + guidelines, output: correct score + explanation). This labelled data does not exist. The scorer also operates on dynamically retrieved guideline context that changes per patient, making static training examples less representative.
+**Reasoning:** This system is a Retrieval-Augmented Generation (RAG) pipeline, not a generative model. The core value comes from (1) high-quality retrieval via PubMedBERT + FAISS finding the right NICE guidelines, and (2) carefully engineered prompts that instruct the LLM how to evaluate adherence. All significant quality improvements came from prompt engineering (binary to 5-level scoring, confidence scores, citation requirements, missing care detection) and retrieval filtering (topic-keyword exclusion, L2 distance thresholds), not from model training. Fine-tuning would also introduce a maintenance burden: any change to the scoring rubric, guideline corpus, or output format would require re-training. With prompt engineering, these changes are immediate and zero-cost. The only scenario where fine-tuning would be justified is if, after gold-standard validation (Phase 7b), we accumulate hundreds of clinician-corrected audit scores and want to distill the scoring behaviour into a cheaper/faster model. This remains a future consideration, not a current need.
+
+### Decision 022: Concurrent batch processing (2026-03-15)
+**Context:** Auditing 50 patients took ~30 min with Ollama (sequential). Scaling to 1000 patients would take 10+ hours.
+**Choice:** Added `BATCH_CONCURRENCY` setting (default 5) using `asyncio.Semaphore` + `asyncio.gather` in the batch loop. Each patient still gets its own DB session. Progress updates happen after each chunk.
+**Alternatives rejected:**
+- Multiprocessing: Overkill for I/O-bound LLM calls. asyncio concurrency is simpler and sufficient.
+- Always-parallel with no limit: Would overwhelm Ollama (single GPU) and hit OpenAI rate limits.
+**Reasoning:** Each patient is fully independent (own diagnoses, FAISS lookups, LLM calls). FAISS index is read-only, DB handles concurrent writes, LLM calls are stateless. Results are identical to sequential processing. OpenAI benefits most (5x speedup). Ollama benefits modestly (10-15% with concurrency=2) since it processes one inference at a time by default. Users can increase `OLLAMA_NUM_PARALLEL` for more Ollama parallelism.
+
+### Decision 023: Model-based report filtering (2026-03-15)
+**Context:** User wanted to audit more patients across multiple jobs and get combined reports per model, not per job.
+**Choice:** Added `model` query parameter to all report, export, and evaluation endpoints. Filters by joining `audit_results.job_id` to `audit_jobs.provider`. Works alongside existing `job_id` filter.
+**Reasoning:** Allows combining results from multiple batch jobs that used the same model (e.g. Job 1 + Job 3 both GPT-4.1-mini) into a single report. No schema changes needed.
+
+### Decision 024: Deterministic evaluation ordering over random sampling (2026-03-16)
+**Context:** Evaluation endpoints (`evaluate/scorer`, `evaluate/agents`) previously selected random patients. This made cross-model comparison unfair (different patients per model) and prevented resuming partial evaluation runs.
+**Choice:** All evaluation endpoints now sort patients by `pat_id` (deterministic) and accept an `offset` parameter alongside `limit`. The scorer endpoint was consolidated from `POST /evaluate/scorer/{job_id}` (path param) to `POST /evaluate/scorer` with query params (`?model=&limit=&offset=`). Audit job results (`GET /audit/jobs/{job_id}/results`) now sort by `pat_id` then `AuditResult.id`.
+**Alternatives rejected:**
+- Random sampling with fixed seed — deterministic per-call but seed management adds complexity and doesn't support resumable evaluation.
+- Requiring explicit `pat_ids` list — shifts the burden to the caller to know which patients exist.
+**Reasoning:** Deterministic `pat_id` ordering ensures that `?model=gpt-4.1-mini&limit=50&offset=0` and `?model=mistral-small&limit=50&offset=0` evaluate the exact same 50 patients, enabling fair apples-to-apples comparison. The `offset` parameter enables resumable evaluation: evaluate 20 patients, then continue from offset=20 without re-evaluating. This is critical for expensive evaluation operations (each patient requires multiple LLM calls).
+
 ---
 
 ## 7. Current State Summary
 
-**Date:** 2026-03-11
+**Date:** 2026-03-16
 **Phase 0-7a:** COMPLETE — Full pipeline + reporting + exports
 **Phase 8:** COMPLETE — Supervisor Feedback (agent renaming, 5-level scoring, Ollama)
 **Phase 9:** COMPLETE — Evaluation Framework (9a Model Comparison ✅, 9b Missing Care ✅, 9d LLM-as-Judge ✅, 9e Visualizations ✅, 9c skipped until clinician labels arrive)
 **Phase 10a:** COMPLETE — Retriever relevance filtering (post-retrieval title exclusion + topic matching + L2 threshold)
 **Phase 10b:** COMPLETE — Comprehensive evaluation endpoints: system metrics, cross-model classification (confusion matrix, P/R/F1, AUROC, 5-class kappa), extractor metrics from DB, full agent evaluation with retriever IR (Precision@k, nDCG, MRR), 3 comparison chart SVGs
 **Phase 10c:** COMPLETE — Comparison HTML report with LLM-as-Judge results (cross-model judging: each model judged by both GPT-4o-mini and mistral-small), full agent evaluation results, all saved to `exports/supervisor-report/`
+**Phase 11:** COMPLETE — Docker fixes (DB_PORT override, HuggingFace cache volume, Dockerfile permissions), model upgrade (gpt-4o-mini to gpt-4.1-mini), Ollama Docker networking (host.docker.internal), concurrent batch processing (BATCH_CONCURRENCY), model-based report filtering (`?model=` param on all endpoints)
+**Phase 11b:** COMPLETE — Deterministic evaluation ordering + resumable evaluation + cross-model fair comparison
+**Phase 11c:** COMPLETE — Large-scale evaluation runs: scorer eval (100 patients × 4 judge combos), agent eval (50 patients × 2 models) with merged results in `data/eval_results/`
+**Phase 11d:** COMPLETE — Comprehensive individual reports: individual HTML reports (`/export/html`) now include system metrics, extractor quality, LLM-as-Judge scorer quality, agent-level evaluation, and missing care opportunities sections; `use_saved_evals=true` param loads pre-computed eval data; fixed truncated patient IDs and variable shadowing bug
 
 **What was done in Phase 9 (so far):**
 
@@ -929,28 +1047,28 @@ Audit (write path):
   POST /api/v1/audit/patient/{pat_id}         — Single patient audit
   POST /api/v1/audit/batch                    — Batch audit (background, supports ?limit=N&skip_audited=true)
   GET  /api/v1/audit/jobs/{job_id}            — Job progress
-  GET  /api/v1/audit/jobs/{job_id}/results    — Paginated job results (supports ?status=failed)
+  GET  /api/v1/audit/jobs/{job_id}/results    — Paginated job results (sorted by pat_id then id, supports ?status=failed)
   GET  /api/v1/audit/results/{pat_id}         — All results for a patient
 
-Reports (read path):
+Reports (read path — all support ?model= and ?job_id= filtering):
   GET  /api/v1/reports/dashboard              — Summary stats
   GET  /api/v1/reports/conditions             — Per-condition breakdown
   GET  /api/v1/reports/non-adherent           — Non-adherent cases
   GET  /api/v1/reports/score-distribution     — Score histogram
 
-Exports (shareable):
+Exports (shareable — all support ?model= and ?job_id= filtering):
   GET  /api/v1/reports/export/csv             — Download CSV file (one row per diagnosis)
-  GET  /api/v1/reports/export/html            — Self-contained HTML report (open in browser)
-  GET  /api/v1/reports/export/comparison-html — Cross-model comparison HTML (all metrics + charts in one file)
+  GET  /api/v1/reports/export/html            — Self-contained HTML report with full eval sections (open in browser, +use_saved_evals flag)
+  GET  /api/v1/reports/export/comparison-html — Cross-model comparison HTML (?job_a=&job_b= or ?model_a=&model_b=, +include_scorer_eval flag)
 
-Evaluation (Phase 9 + 10b):
+Evaluation (Phase 9 + 10b — deterministic pat_id ordering with offset/limit):
   GET  /api/v1/evaluation/compare             — Compare two batch jobs (job_a, job_b params)
   GET  /api/v1/evaluation/missing-care        — Missing care opportunities aggregation
-  POST /api/v1/evaluation/evaluate/scorer/{job_id} — LLM-as-Judge scorer evaluation
+  POST /api/v1/evaluation/evaluate/scorer     — LLM-as-Judge scorer evaluation (?model=&limit=&offset=, deterministic pat_id sort)
   GET  /api/v1/evaluation/system-metrics      — Score class distribution, adherence rate, confidence stats
   GET  /api/v1/evaluation/cross-model-metrics — Confusion matrix, per-class P/R/F1, AUROC, 5-class kappa
   GET  /api/v1/evaluation/extractor-metrics   — Extractor SNOMED categorisation P/R/F1 (no LLM needed)
-  POST /api/v1/evaluation/evaluate/agents     — Full 4-agent evaluation with retriever IR metrics (expensive)
+  POST /api/v1/evaluation/evaluate/agents     — Full 4-agent evaluation with retriever IR metrics (?limit=&offset=, deterministic pat_id sort)
 ```
 
 **Key files (Phase 9 + 10b):**
@@ -960,8 +1078,8 @@ Evaluation (Phase 9 + 10b):
 - Reporting additions: `src/services/reporting.py` (`get_missing_care_summary()`, **+ `compute_system_metrics()` — class distribution, adherence rate, confidence stats**)
 - Scorer changes: `src/agents/scorer.py` (new `missing_care_opportunities` field + prompt + parser)
 - Migration: `migrations/versions/002_add_job_provider.py` (`provider` column on `audit_jobs`)
-- Export visualizations: `src/services/export.py` (SVG chart helpers + `_collect_chart_data()` + `export_charts_to_png()`, **+ `_svg_confusion_matrix()`, `_svg_comparison_scores()`, `_svg_comparison_compliance()`, `generate_comparison_html()`, `_build_scorer_eval_section()`, `_build_agent_eval_section()`, `_kappa_label()`**)
-- Reports routes: `src/api/routes/reports.py` (**+ `GET /export/comparison-html` with optional `include_scorer_eval` flag**)
+- Export visualizations: `src/services/export.py` (SVG chart helpers + `_collect_chart_data()` + `export_charts_to_png()`, **+ `_svg_confusion_matrix()`, `_svg_comparison_scores()`, `_svg_comparison_compliance()`, `generate_comparison_html()`, `_build_scorer_eval_section()`, `_build_agent_eval_section()`, `_kappa_label()`**, **+ `_build_system_metrics_html()`, `_build_extractor_html()`, `_build_scorer_eval_single_html()`, `_build_agent_eval_single_html()`, `_build_missing_care_html()`**)
+- Reports routes: `src/api/routes/reports.py` (**+ `GET /export/comparison-html` with optional `include_scorer_eval` flag**, **+ `use_saved_evals` param on `GET /export/html`**)
 - Chart export script: `scripts/export_charts.py` (CLI for saving PNG charts to local folder)
 - Tests: `tests/unit/test_comparison.py` (29), `tests/unit/test_missing_care.py` (12), `tests/unit/test_evaluation.py` (28), `tests/unit/test_export.py` (36), `tests/unit/test_reporting.py` (+4 system metrics)
 
@@ -1029,6 +1147,21 @@ Evaluation (Phase 9 + 10b):
 9. Phase 9c: Gold-standard metrics (when 120 clinician labels arrive)
 10. Re-run batches after retriever relevance filter to validate improvement
 
+**Deterministic evaluation ordering (2026-03-16):**
+- All evaluation endpoints (`evaluate/scorer`, `evaluate/agents`) now use deterministic `pat_id` sorting instead of random patient selection
+- Added `offset` parameter for resumable evaluation (evaluate patients in batches without re-evaluating)
+- Removed `pat_ids` parameter from scorer endpoint; removed duplicate `POST /evaluate/scorer/{job_id}` path-param endpoint (kept only query-param version)
+- `GET /audit/jobs/{job_id}/results` now returns results sorted by `pat_id` then `AuditResult.id` for stable pagination
+- `_load_results_for_scorer()` in `reports.py` uses deterministic `pat_id` sorting + offset
+- Cross-model fair comparison: same `offset`/`limit` produces same patients for different models
+- All report/export endpoints support `?model=` query param; comparison-html supports `?model_a=`/`?model_b=`
+
+**Key files changed (Phase 11b):**
+- `src/api/routes/evaluation.py` — scorer endpoint consolidated to query params, agents endpoint uses deterministic ordering + offset
+- `src/api/routes/reports.py` — `_load_results_for_scorer()` deterministic sort + offset; comparison-html supports model_a/model_b
+- `src/api/routes/audit.py` — job results sorted by pat_id then id
+- `src/services/evaluation.py` — `run_agent_evaluation()` uses deterministic pat_id ordering + offset
+
 ---
 
 ## 8. Known Issues / Tech Debt
@@ -1059,8 +1192,8 @@ Evaluation (Phase 9 + 10b):
 ### Quick Start
 ```bash
 # Clone the repository
-git clone https://github.com/anasraza57/guideline-guard.git
-cd guideline-guard
+git clone https://github.com/anasraza57/clinaudit-ai.git
+cd clinaudit-ai
 
 # Copy environment template and fill in your values
 cp .env.example .env

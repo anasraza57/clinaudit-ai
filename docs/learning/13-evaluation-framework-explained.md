@@ -187,7 +187,7 @@ GET /evaluation/missing-care  →  API response
 |--------|-----|
 | **API** | `GET /evaluation/missing-care` — grouped by condition with frequency counts |
 | **CSV export** | `missing_care_opportunities` column (semicolon-separated) |
-| **HTML report** | Amber "Missing care: ..." tag on diagnosis cards |
+| **HTML report** | Amber "Missing care: ..." tag on diagnosis cards + aggregated missing care section |
 | **JSON details** | `missing_care_opportunities` array in each score object |
 
 ### Backward Compatibility
@@ -312,7 +312,7 @@ scoring_from_stored(details)  →  Reconstructs ScoringResult dataclass
 evaluate_scoring(scoring, ai_provider)  →  ScorerMetrics
 ```
 
-The API endpoint `POST /api/v1/evaluation/evaluate/scorer/{job_id}` uses this approach. It loads completed results for a batch job and sends each diagnosis to the LLM judge. Use `?limit=5` to control cost (default: 5 patients).
+The API endpoint `POST /api/v1/evaluation/evaluate/scorer` uses this approach. It loads completed results (filtered by `?model=` or `?job_id=`) and sends each diagnosis to the LLM judge. Use `?limit=5` to control cost (default: 5 patients). Results are returned in deterministic `pat_id` order with `?offset=` support for resumable evaluation. The same `offset`/`limit` produces the same patients for different models, enabling fair cross-model comparison.
 
 ### Full Pipeline Evaluation (Requires Re-Run)
 
@@ -448,14 +448,18 @@ Implementation: `evaluate_retrieval_ir()` in `src/services/evaluation.py`.
 
 ## Full Agent Evaluation
 
-### `POST /evaluation/evaluate/agents?limit=5`
+### `POST /evaluation/evaluate/agents?limit=5&offset=0`
 
 Orchestrates evaluation of all 4 pipeline agents:
 
-1. Picks `limit` random patients from the database
+1. Selects `limit` patients from the database using **deterministic `pat_id` sorting** with `offset` (not random)
 2. Runs the full pipeline via `AuditPipeline.run_single()` for each patient
 3. Evaluates all 4 agents using existing functions + new retriever IR metrics
 4. Aggregates results across all patients
+
+**Deterministic ordering:** Patients are sorted by `pat_id` and selected via `offset`/`limit`. This ensures:
+- **Cross-model fairness:** The same `offset`/`limit` produces the same patients regardless of which model is being evaluated
+- **Resumable evaluation:** First call with `offset=0&limit=5` evaluates the first 5 patients; a second call with `offset=5&limit=5` evaluates the next 5 without re-running the first batch
 
 **Warning**: This is expensive — each patient requires multiple LLM calls for the pipeline run plus additional LLM calls for the judge evaluations.
 
@@ -514,16 +518,39 @@ In practice, both judges produce consistent scores (±0.2 across all metrics), w
 ### How to Generate the Full Report
 
 ```bash
-# Basic comparison report (no scorer eval — fast)
+# Compare by job ID (basic, no scorer eval — fast)
 curl -o report.html "http://localhost:8000/api/v1/reports/export/comparison-html?job_a=1&job_b=2"
+
+# Compare by model name (combines all jobs for each model)
+curl -o report.html "http://localhost:8000/api/v1/reports/export/comparison-html?model_a=gpt-4.1-mini&model_b=mistral-small"
 
 # With inline LLM-as-Judge scorer evaluation (~30s per job)
 curl -o report.html "http://localhost:8000/api/v1/reports/export/comparison-html?job_a=1&job_b=2&include_scorer_eval=true"
 ```
 
+### Individual HTML Report with Evaluation Sections
+
+As of Phase 11d, the **individual HTML report** (`GET /api/v1/reports/export/html`) includes all the evaluation sections that were previously only available in the comparison report:
+
+- **System Metrics** — score class distribution, adherence rate, confidence stats
+- **Extractor Quality** — per-category P/R/F1 from SNOMED rules
+- **LLM-as-Judge Scorer Quality** — both judges' ratings (requires `use_saved_evals=true`)
+- **Agent-Level Evaluation** — query relevance/coverage, retriever IR metrics, scorer quality (requires `use_saved_evals=true`)
+- **Aggregated Missing Care Opportunities** — top care gaps grouped by condition
+
+The `use_saved_evals=true` query parameter tells the endpoint to load pre-computed evaluation results from `data/eval_results/` (the JSON files produced by large-scale evaluation runs). Without this flag, system metrics, extractor quality, and missing care sections are still included (they require no pre-computed data), but the LLM-as-Judge scorer and agent-level evaluation sections are omitted.
+
+```bash
+# Individual report with all evaluation sections (uses saved eval results)
+curl -o report.html "http://localhost:8000/api/v1/reports/export/html?model=gpt-4.1-mini&use_saved_evals=true"
+
+# Individual report without saved evals (still includes system metrics, extractor, missing care)
+curl -o report.html "http://localhost:8000/api/v1/reports/export/html?model=mistral-small"
+```
+
 For the full report with cross-model judging and agent evaluation, the `generate_comparison_html()` function accepts optional `scorer_evals` and `agent_eval` dicts that can be pre-computed and passed in programmatically.
 
-Implementation: `generate_comparison_html()`, `_build_scorer_eval_section()`, `_build_agent_eval_section()`, `_kappa_label()` in `src/services/export.py`. Endpoint in `src/api/routes/reports.py`.
+Implementation: `generate_comparison_html()`, `_build_scorer_eval_section()`, `_build_agent_eval_section()`, `_kappa_label()` in `src/services/export.py`. Individual report section builders: `_build_system_metrics_html()`, `_build_extractor_html()`, `_build_scorer_eval_single_html()`, `_build_agent_eval_single_html()`, `_build_missing_care_html()` in `src/services/export.py`. Endpoints in `src/api/routes/reports.py`.
 
 ---
 
@@ -539,3 +566,57 @@ Implementation: `generate_comparison_html()`, `_build_scorer_eval_section()`, `_
 | `test_gold_standard.py` | — | Planned: confusion matrix, F1 metrics, kappa (when clinician labels arrive) |
 
 **Total project tests:** 371 passing
+
+---
+
+## Large-Scale Evaluation Results
+
+All evaluation runs use **deterministic `pat_id` ordering** — the same `offset`/`limit` produces the same patients regardless of model, ensuring fair cross-model comparison.
+
+### Scorer Evaluation — LLM-as-Judge (100 patients, 156 diagnoses)
+
+Each model's stored audit results were judged by both LLMs (scale 1-5):
+
+| Metric | mistral-small + Ollama Judge | mistral-small + OpenAI Judge | gpt-4.1-mini + Ollama Judge | gpt-4.1-mini + OpenAI Judge |
+|---|---|---|---|---|
+| Reasoning Quality | 4.58 | 4.37 | 4.75 | 4.77 |
+| Citation Accuracy | 3.81 | 3.22 | 4.56 | 4.46 |
+| Score Calibration | 4.56 | 4.51 | 4.73 | 4.79 |
+
+**Key findings:**
+- GPT-4.1-mini consistently outperforms mistral-small, especially on citation accuracy (+0.75 to +1.24)
+- Both judges broadly agree on relative rankings, validating judge reliability
+- Citation accuracy is the weakest dimension for both models — guidelines retrieved don't always match the cited evidence
+
+### Full Agent Evaluation — Pipeline + LLM Judge (50 patients, 88 diagnoses)
+
+Re-runs the full 4-agent pipeline per patient, then evaluates each agent:
+
+| Metric | mistral-small | gpt-4.1-mini |
+|---|---|---|
+| Extractor match rate | 1.00 | 1.00 |
+| Query relevance (1-5) | 4.30 | 4.55 |
+| Query coverage (1-5) | 3.47 | 3.63 |
+| Retriever relevance (1-5) | 3.08 | 3.32 |
+| Retriever precision@k | 0.383 | 0.568 |
+| Retriever recall@k | 0.849 | 0.951 |
+| Retriever nDCG | 0.648 | 0.821 |
+| Retriever MRR | 0.595 | 0.793 |
+| Scorer reasoning (1-5) | 4.61 | 4.78 |
+| Scorer citation (1-5) | 3.86 | 4.32 |
+| Scorer calibration (1-5) | 4.60 | 4.77 |
+
+**Key findings:**
+- Extractor is identical across models (rule-based SNOMED categorisation, model-independent)
+- Biggest performance gap is in retriever IR metrics — GPT generates better search queries leading to more relevant guideline retrieval (precision@k: 0.57 vs 0.38, nDCG: 0.82 vs 0.65)
+- Scorer quality follows from retriever quality — better guidelines in → better scoring out
+
+### Result Files
+
+All stored in `data/eval_results/`:
+- `scorer_eval_mistral_small_ollama_judge_100.json` — 100 patients, Ollama judge
+- `scorer_eval_mistral_small_openai_judge_100.json` — 100 patients, OpenAI judge
+- `scorer_eval_gpt4_mini_ollama_judge_100.json` — 100 patients, Ollama judge
+- `scorer_eval_gpt4_mini_openai_judge_100.json` — 100 patients, OpenAI judge
+- `agents_eval_mistral_small_50.json` — 50 patients, full pipeline eval
+- `agents_eval_gpt4_mini_50.json` — 50 patients, full pipeline eval

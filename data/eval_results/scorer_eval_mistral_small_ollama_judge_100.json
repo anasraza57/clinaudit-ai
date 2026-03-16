@@ -1,0 +1,2159 @@
+{
+  "job_id": null,
+  "model": "mistral-small",
+  "total_patients": 100,
+  "total_diagnoses": 156,
+  "mean_reasoning_quality": 4.5769,
+  "mean_citation_accuracy": 3.8077,
+  "mean_score_calibration": 4.5641,
+  "per_patient": [
+    {
+      "pat_id": "001e1fe6-5660-e486-1501-6f9a8a4c2ec8",
+      "total_diagnoses": 4,
+      "mean_reasoning_quality": 4.5,
+      "mean_citation_accuracy": 1.0,
+      "mean_score_calibration": 4.5,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Finger pain",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 1,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Finger fracture",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 1,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Finger pain",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 1,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Finger fracture",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 1,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "003217d7-04d3-19dc-6086-5fcc0fe629b3",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 1.0,
+      "mean_score_calibration": 3.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Pain in lower limb",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 1,
+          "score_calibration": 3
+        }
+      ]
+    },
+    {
+      "pat_id": "0059d230-88ed-290b-1ce0-5f4a308554bb",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 3.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Foot pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "008b44a0-f536-6de7-50e5-60a21ac86efd",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Spasm",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "00922b28-935b-be2b-fd18-25d2aed1819c",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 4.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Sciatica",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 4,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "00abc394-b3a9-fea0-0962-9a56cd64d7c4",
+      "total_diagnoses": 4,
+      "mean_reasoning_quality": 4.5,
+      "mean_citation_accuracy": 4.0,
+      "mean_score_calibration": 4.5,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Neck pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Carpal tunnel syndrome",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Neck pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Carpal tunnel syndrome",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "00bb2d5a-562e-21a2-0758-8d86561ef51a",
+      "total_diagnoses": 2,
+      "mean_reasoning_quality": 4.5,
+      "mean_citation_accuracy": 4.0,
+      "mean_score_calibration": 4.5,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Foot pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Shoulder pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "00d3ad90-d153-e8b0-09bd-d6a4eaff170d",
+      "total_diagnoses": 4,
+      "mean_reasoning_quality": 4.5,
+      "mean_citation_accuracy": 2.25,
+      "mean_score_calibration": 4.5,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Osteoarthritis of hip",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 3,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Olecranon bursitis",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 1,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Osteoarthritis of hip",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 4,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Olecranon bursitis",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 1,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "00edb01b-f8f5-91e5-0e52-d3ba860c89a5",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 4.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Osteoarthritis of knee",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 4,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "01145ce2-a416-2b84-3ac6-611711785d08",
+      "total_diagnoses": 4,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 4.5,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Pain of joint of knee",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 5,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Low back pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 4,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Pain of joint of knee",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 5,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Low back pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 4,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "014f69ee-6443-47ff-2c7f-1aafd08df65a",
+      "total_diagnoses": 2,
+      "mean_reasoning_quality": 4.5,
+      "mean_citation_accuracy": 2.5,
+      "mean_score_calibration": 4.5,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Primary prevention of cardiovascular disease",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 1,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Osteoarthritis of knee",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 4,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "01547487-1e3d-7703-cfa4-010248680ce5",
+      "total_diagnoses": 2,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Low back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Backache",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "016ef5bf-4963-5394-00be-4c86a34b78f4",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 4.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Metatarsal bone fracture",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 4,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "0171d504-8858-4f5c-083c-09ed52ca1952",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 1.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Low back pain",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 1,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "0172a541-ea17-956e-7f9d-c98986fc143b",
+      "total_diagnoses": 6,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 3.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Rupture of anterior cruciate ligament",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 1,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Acute meniscal tear",
+          "score": -2,
+          "judgement": "RISKY NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 5,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Knee injury",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Rupture of anterior cruciate ligament",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 1,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Acute meniscal tear",
+          "score": -2,
+          "judgement": "RISKY NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 5,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Knee injury",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "0179d2b6-9900-e129-f1df-aa2f55e3aea8",
+      "total_diagnoses": 6,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 3.6667,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Anterior knee pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 5,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Knee injury",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 5,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Lateral epicondylitis",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 1,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Anterior knee pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 5,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Knee injury",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 5,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Lateral epicondylitis",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 1,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "01941d75-6f1e-3f3a-0e8c-ce528f9209e9",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 2.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Foot pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 2,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "019ddb6e-08ca-5164-b0d1-a5ce09bae547",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Foot pain",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "01a1c270-640a-b362-8e31-5b622a1bbc71",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Pain in toe",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "01a76cf9-4346-c775-ceae-b361c167a760",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Muscle pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "01aa45a7-b963-d9c7-d17f-fe828b299faf",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Hip pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 5,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "01ba3591-3ce3-8a36-b3e0-bc588142ae5a",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Carpal tunnel syndrome",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "01cc7b16-5509-483e-5b25-4e8be64535d6",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Pain of knee region",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "01fde560-7174-2e56-e5c5-2322342c125e",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 1.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Elbow joint pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 1,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "02324ef7-1950-2c7c-9ce7-e633e506fb99",
+      "total_diagnoses": 4,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Low back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Lower back injury",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Low back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Lower back injury",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "0233b1f4-95ae-ad4f-48f1-10f9ea27d25f",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 1.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Fracture of thoracic spine",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 1,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "0261e18e-e089-1493-b631-204dfda41043",
+      "total_diagnoses": 4,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 4.5,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Osteoarthritis of knee",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 4,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Degenerative lumbar spinal stenosis",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Osteoarthritis of knee",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 4,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Degenerative lumbar spinal stenosis",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "02755acd-b85e-9b8a-8f77-452a9060c736",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Low back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "028515ca-2c21-3872-e8ee-c1ea3acc3cf1",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Hip pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "02a9cecc-cef7-c5f9-f3a5-8541d42dc671",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Low back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "02e17d15-c47e-771a-de5a-8a95431493cc",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 3.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Foot pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "03026b60-82aa-97cc-c67d-4140c2fa2340",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Low back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "03146706-6828-0e21-4c87-9863e53e32f9",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 4.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Osteoarthritis of hip",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 4,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "032d171e-9615-039a-6b94-9aa0f17d994f",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Low back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "0330b6a7-9fec-01a0-8424-485da318e933",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Pain in lower limb",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "03419fc1-39e8-f111-aaa7-666af4995059",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Low back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "03421005-c487-590e-8d11-da396d802571",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Generalised aches and pains",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "03466dc7-200d-80ad-e222-782ae1a0ab2b",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Sprain of ankle",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "03732dcf-272a-9da1-d93d-370ee9e22562",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 3.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Pain in lower limb",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 3,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "03786712-b3a6-fb3f-4230-899904ae19b9",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Thoracic back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "0381f1e4-d47d-be83-be1c-3223fcf04945",
+      "total_diagnoses": 4,
+      "mean_reasoning_quality": 4.5,
+      "mean_citation_accuracy": 3.0,
+      "mean_score_calibration": 4.5,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Closed fracture of radius",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 1,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Shoulder pain",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Closed fracture of radius",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 1,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Shoulder pain",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "0383ca80-3b65-9ae3-b18b-8a213702d866",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 3.0,
+      "mean_citation_accuracy": 1.0,
+      "mean_score_calibration": 3.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Anterior knee pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 3,
+          "citation_accuracy": 1,
+          "score_calibration": 3
+        }
+      ]
+    },
+    {
+      "pat_id": "03896ed5-e5cb-7302-3f45-0300a7915910",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Shoulder pain",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "038ecb9a-cd4f-da4c-3702-8dab447043e9",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Supraspinatus tear",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "03b69246-57a8-2764-8451-8fb1010a662a",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 4.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Backache",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 4,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "03c79c03-8d0d-4c69-7ea9-cea99009e487",
+      "total_diagnoses": 4,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 3.5,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Sciatica",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 4,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Pain in lower limb",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 3,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Sciatica",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 4,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Pain in lower limb",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 3,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "03d2bc7d-0cc3-eeae-f6a9-a2f2c3d52f1e",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Lumbago with sciatica",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "03d8d824-8d2f-b0c9-c581-133c8ae8dc1b",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Shoulder pain",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "03ea42d7-4b8c-e5f1-b261-5c2041b6b4e1",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Femoral acetabular impingement",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "03fe19da-b51a-f454-6772-dfb4cb97745f",
+      "total_diagnoses": 2,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Low back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Backache",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "043a6324-67dd-0501-28a2-a866b7700810",
+      "total_diagnoses": 4,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Achilles tendinitis",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Calcaneal spur",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Achilles tendinitis",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Calcaneal spur",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "048d9ba2-5684-a4fc-f641-6a505c0aed83",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 2.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Sprain of ankle",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 2,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "0495b970-cdf6-93d3-4082-6531cc7abdaa",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 3.0,
+      "mean_citation_accuracy": 1.0,
+      "mean_score_calibration": 3.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Finger clubbing",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 3,
+          "citation_accuracy": 1,
+          "score_calibration": 3
+        }
+      ]
+    },
+    {
+      "pat_id": "04a3c837-15f0-36a1-ab80-e556c40e2414",
+      "total_diagnoses": 4,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 4.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Pain of joint of knee",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 5,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Shoulder pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Pain of joint of knee",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 5,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Shoulder pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "04b74566-e2f5-7536-c142-1b1b52e4e014",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 1.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Sprain of ankle",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 1,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "04b884f4-584d-6caf-b113-79ed2af3f401",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Low back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "04b9d0d6-7974-0578-ddcc-aa0671d75da1",
+      "total_diagnoses": 3,
+      "mean_reasoning_quality": 4.6667,
+      "mean_citation_accuracy": 4.3333,
+      "mean_score_calibration": 4.6667,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Closed fracture of unspecified proximal femur",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 4,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Fracture of neck of femur",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 4,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Prim open reduct fract long bone & fixation flexible nail",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "04e89260-bd6b-1f68-7cb7-05fbc7695daa",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Lumbago with sciatica",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "05358c3c-de52-ead8-c3b7-53a8f3894aa9",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 2.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Ankle pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 2,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "05563741-a6d6-2d96-e3d7-4c4453c15559",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 3.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Shoulder pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "055904ec-2188-2c31-0d5f-68fe7e6aea84",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 2.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Injury of knee",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 2,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "055d6c66-9c9d-1150-b2ff-ebb03c61836e",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 1.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Sprain of knee",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 1,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "05644b77-f135-6f62-85fa-00b2bd8898f4",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Low back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "057cd0c8-0cc3-3b20-8495-d26cf7b1d18d",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Hip pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 5,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "05891061-e019-be3a-2974-b1800580cdfa",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Generalised aches and pains",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "058fdfe7-1e36-1b26-28d5-87ac796abc51",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 3.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Pain of knee region",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "059c3d74-55d7-a7b6-e905-acdfe7515d0f",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Musculoskeletal pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "05c11260-dff3-cd8c-dabe-26594943a1ad",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Low back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "05c6282c-20f9-3920-c778-84243d7c931f",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 4.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Low back pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 4,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "05e31443-e72b-9fdb-61e0-446702c77b5a",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Hip pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "05ef0c05-3959-e336-820f-e7028d516ce2",
+      "total_diagnoses": 4,
+      "mean_reasoning_quality": 4.5,
+      "mean_citation_accuracy": 4.0,
+      "mean_score_calibration": 4.5,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Neck pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Shoulder pain",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Neck pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Shoulder pain",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "0606959f-1c81-fd36-cb01-b018bc7a7c49",
+      "total_diagnoses": 2,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 1.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Closed fracture of hip",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 1,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Fracture of neck of femur",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 1,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "062270c9-1ea1-2495-0ff9-f25d960c5667",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Backache",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "0629018e-2d2e-b143-a60d-184f825a0c23",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 3.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Shoulder pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "06331494-bbea-feee-2e91-b4e8f2509e60",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Acquired trigger finger",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "063486a1-422d-b58a-5bd8-50cb4e5dde30",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Injury of ankle",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "06348cf1-ade8-12b7-416b-0e147dd8d6ee",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Pain in lower limb",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 5,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "063b5c5a-e93f-2bc1-19cc-c68944aab8c4",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Low back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "0658989c-22e2-5c25-63fa-58f7d1c5362e",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Anterior knee pain",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "06649630-e482-9a40-56ac-e34232a70fc6",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 3.0,
+      "mean_citation_accuracy": 2.0,
+      "mean_score_calibration": 3.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Pain in toe",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 3,
+          "citation_accuracy": 2,
+          "score_calibration": 3
+        }
+      ]
+    },
+    {
+      "pat_id": "0677d19c-2a88-9711-2803-eef4d8a51c15",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 2.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Sprain of ankle",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 2,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "069258bc-c8f4-9479-2218-7a06af72db64",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Muscle strain",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "06aa5ea7-b23a-fe37-757e-3441da232083",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Sciatica",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "070189e7-a829-e249-580c-34655e2cc5f2",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 1.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Sprain of ankle",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 1,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "0717404a-288d-0f4e-47d1-d8032ac5ade6",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Patellofemoral osteoarthritis",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "071750dd-b4be-18d9-e19c-a161b97e79d3",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 4.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Pain in cervical spine",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 4,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "0727211b-451b-0672-b193-1f785a450388",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 1.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Carpal tunnel syndrome",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 1,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "0727839a-c64b-04b4-f54a-99cbb7c66ebe",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Low back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "07681a4e-51cb-41cf-d90a-1d058d972d50",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Musculoskeletal pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "076d03cd-4ede-2302-959e-949b5b8d7071",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Pain of joint of knee",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "078334b2-4796-333d-bc89-4e6d42762d68",
+      "total_diagnoses": 4,
+      "mean_reasoning_quality": 4.5,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 4.5,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Pain of knee region",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 5,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Pain in lower limb",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        },
+        {
+          "diagnosis": "Pain of knee region",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 5,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Pain in lower limb",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "07858f7b-0d94-c651-ba48-2ff9f95acda2",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Low back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "07ae598c-c39c-9ad5-aeb9-6f4ef8610de0",
+      "total_diagnoses": 4,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 3.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Anterior knee pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Hand pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Anterior knee pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        },
+        {
+          "diagnosis": "Hand pain",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "07b3e4fb-ae8f-338e-8df5-64aba0b0c450",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Anterior knee pain",
+          "score": 0,
+          "judgement": "NOT RELEVANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "07c975ef-b754-a820-6917-b64b018bd634",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Ganglion of wrist",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "07d2679f-7b2c-38cc-0079-ebd76ff5f4ef",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 3.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Pain in coccyx",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "07fe6f6a-18bf-b6d1-a424-5ac5480b3396",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 3.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Fracture of metacarpal bone",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        }
+      ]
+    },
+    {
+      "pat_id": "080f56c3-826e-0763-02a7-372febdb7bcc",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 4.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Acute thoracic back pain",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 4,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "084f8afa-8a34-a343-2a67-f5bd1b79a992",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 5.0,
+      "mean_citation_accuracy": 5.0,
+      "mean_score_calibration": 5.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Pain in lower limb",
+          "score": -1,
+          "judgement": "NON-COMPLIANT",
+          "reasoning_quality": 5,
+          "citation_accuracy": 5,
+          "score_calibration": 5
+        }
+      ]
+    },
+    {
+      "pat_id": "08700cca-61ed-1025-596c-3c67739eea7a",
+      "total_diagnoses": 1,
+      "mean_reasoning_quality": 4.0,
+      "mean_citation_accuracy": 3.0,
+      "mean_score_calibration": 4.0,
+      "per_diagnosis": [
+        {
+          "diagnosis": "Pain in upper arm",
+          "score": 1,
+          "judgement": "PARTIALLY COMPLIANT",
+          "reasoning_quality": 4,
+          "citation_accuracy": 3,
+          "score_calibration": 4
+        }
+      ]
+    }
+  ]
+}

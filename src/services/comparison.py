@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.config.settings import get_settings
 from src.models.audit import AuditJob, AuditResult
 from src.models.patient import Patient
 
@@ -66,10 +67,10 @@ class ConditionComparison:
 class ComparisonResult:
     """Full comparison between two batch runs."""
 
-    job_a_id: int
-    job_b_id: int
-    job_a_provider: str | None
-    job_b_provider: str | None
+    job_a_id: int | None
+    job_b_id: int | None
+    job_a_model: str | None
+    job_b_model: str | None
     total_patients_compared: int
     patients: list[PatientComparison] = field(default_factory=list)
     per_condition: list[ConditionComparison] = field(default_factory=list)
@@ -85,8 +86,8 @@ class ComparisonResult:
         return {
             "job_a_id": self.job_a_id,
             "job_b_id": self.job_b_id,
-            "job_a_provider": self.job_a_provider,
-            "job_b_provider": self.job_b_provider,
+            "job_a_model": self.job_a_model,
+            "job_b_model": self.job_b_model,
             "total_patients_compared": self.total_patients_compared,
             "mean_score_a": round(self.mean_score_a, 4),
             "mean_score_b": round(self.mean_score_b, 4),
@@ -213,29 +214,26 @@ def compute_pearson(values_a: list[float], values_b: list[float]) -> float:
 
 async def compare_jobs(
     session: AsyncSession,
-    job_a_id: int,
-    job_b_id: int,
+    job_a_id: int | None = None,
+    job_b_id: int | None = None,
+    model_a: str | None = None,
+    model_b: str | None = None,
 ) -> ComparisonResult:
     """
-    Compare audit results from two batch jobs side-by-side.
+    Compare audit results from two batch jobs or two models side-by-side.
 
-    Both jobs should have been run on the same (or overlapping) patient
-    set. Matches patients by pat_id and compares per-diagnosis scores.
+    Accepts either job IDs or model names (or a mix). When using model
+    names, aggregates results across all jobs for that model.
 
     Returns a ComparisonResult with per-patient diffs, per-condition
     adherence deltas, and statistical agreement metrics.
     """
-    # Load both jobs for provider info
-    job_a = await session.get(AuditJob, job_a_id)
-    job_b = await session.get(AuditJob, job_b_id)
-
-    if job_a is None or job_b is None:
-        missing = job_a_id if job_a is None else job_b_id
-        raise ValueError(f"Job {missing} not found")
-
-    # Load completed results for both jobs with patient data
-    results_a = await _load_job_results(session, job_a_id)
-    results_b = await _load_job_results(session, job_b_id)
+    results_a, model_a_name, resolved_a_id = await _resolve_results(
+        session, job_a_id, model_a, "Model A",
+    )
+    results_b, model_b_name, resolved_b_id = await _resolve_results(
+        session, job_b_id, model_b, "Model B",
+    )
 
     # Index by pat_id
     map_a: dict[str, AuditResult] = {r.patient.pat_id: r for r in results_a if r.patient}
@@ -358,10 +356,10 @@ async def compare_jobs(
         ))
 
     return ComparisonResult(
-        job_a_id=job_a_id,
-        job_b_id=job_b_id,
-        job_a_provider=getattr(job_a, "provider", None),
-        job_b_provider=getattr(job_b, "provider", None),
+        job_a_id=resolved_a_id or 0,
+        job_b_id=resolved_b_id or 0,
+        job_a_model=model_a_name,
+        job_b_model=model_b_name,
         total_patients_compared=len(common_pat_ids),
         patients=patients,
         per_condition=per_condition,
@@ -390,6 +388,65 @@ async def _load_job_results(
     )
     result = await session.execute(query)
     return list(result.scalars().all())
+
+
+async def _load_model_results(
+    session: AsyncSession,
+    model: str,
+) -> list[AuditResult]:
+    """Load all completed results for a model across all jobs.
+
+    When a patient has results in multiple jobs for the same model,
+    the latest result (highest audit_result.id) is used.
+    """
+    job_ids_q = select(AuditJob.id).where(AuditJob.provider == model)
+    query = (
+        select(AuditResult)
+        .where(AuditResult.job_id.in_(job_ids_q))
+        .where(AuditResult.status == "completed")
+        .options(selectinload(AuditResult.patient))
+        .order_by(AuditResult.id.desc())
+    )
+    result = await session.execute(query)
+    all_results = list(result.scalars().all())
+
+    # Deduplicate: keep the latest result per patient
+    seen: set[int] = set()
+    deduped: list[AuditResult] = []
+    for r in all_results:
+        if r.patient_id not in seen:
+            seen.add(r.patient_id)
+            deduped.append(r)
+    return deduped
+
+
+async def _resolve_results(
+    session: AsyncSession,
+    job_id: int | None,
+    model: str | None,
+    label: str,
+) -> tuple[list[AuditResult], str | None, int | None]:
+    """Resolve results from either a job_id or model name.
+
+    Returns (results, model_name, job_id_or_none).
+    """
+    settings = get_settings()
+    if job_id is not None:
+        job = await session.get(AuditJob, job_id)
+        if job is None:
+            raise ValueError(f"Job {job_id} not found")
+        results = await _load_job_results(session, job_id)
+        model_name = settings.model_name_for_provider(
+            getattr(job, "provider", None),
+        )
+        return results, model_name, job_id
+    elif model is not None:
+        results = await _load_model_results(session, model)
+        if not results:
+            raise ValueError(f"No completed results for model '{model}'")
+        return results, model, None
+    else:
+        raise ValueError(f"{label} requires either job_id or model")
 
 
 def _parse_details(details_json: str | None) -> list[dict]:
@@ -451,29 +508,30 @@ def _compute_auroc(labels: list[int], scores: list[float]) -> float | None:
 
 async def compute_cross_model_classification(
     session: AsyncSession,
-    job_a_id: int,
-    job_b_id: int,
+    job_a_id: int | None = None,
+    job_b_id: int | None = None,
+    model_a: str | None = None,
+    model_b: str | None = None,
 ) -> dict:
     """
     Enhanced cross-model comparison with confusion matrix and classification metrics.
 
-    Matches diagnoses across two jobs and computes:
+    Accepts either job IDs or model names (or a mix). When using model
+    names, aggregates results across all jobs for that model.
+
+    Computes:
     - 5×5 confusion matrix (Model A vs Model B scores)
     - Per-class precision/recall/F1
     - 5-class and 3-class Cohen's kappa
     - Exact-match accuracy
     - AUROC (adherent vs non-adherent, using confidence as score)
     """
-    # Load both jobs for provider info
-    job_a = await session.get(AuditJob, job_a_id)
-    job_b = await session.get(AuditJob, job_b_id)
-
-    if job_a is None or job_b is None:
-        missing = job_a_id if job_a is None else job_b_id
-        raise ValueError(f"Job {missing} not found")
-
-    results_a = await _load_job_results(session, job_a_id)
-    results_b = await _load_job_results(session, job_b_id)
+    results_a, model_a_name, resolved_a_id = await _resolve_results(
+        session, job_a_id, model_a, "Model A",
+    )
+    results_b, model_b_name, resolved_b_id = await _resolve_results(
+        session, job_b_id, model_b, "Model B",
+    )
 
     map_a = {r.patient.pat_id: r for r in results_a if r.patient}
     map_b = {r.patient.pat_id: r for r in results_b if r.patient}
@@ -576,10 +634,10 @@ async def compute_cross_model_classification(
     auroc = _compute_auroc(auroc_labels, auroc_scores)
 
     return {
-        "job_a_id": job_a_id,
-        "job_b_id": job_b_id,
-        "job_a_provider": getattr(job_a, "provider", None),
-        "job_b_provider": getattr(job_b, "provider", None),
+        "job_a_id": resolved_a_id or 0,
+        "job_b_id": resolved_b_id or 0,
+        "job_a_model": model_a_name,
+        "job_b_model": model_b_name,
         "total_diagnoses_compared": total_compared,
         "confusion_matrix": {
             "labels": LABEL_STRS,

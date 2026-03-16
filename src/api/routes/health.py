@@ -28,7 +28,7 @@ class HealthResponse(BaseModel):
     timestamp: str
 
     model_config = {"json_schema_extra": {"examples": [
-        {"status": "healthy", "service": "GuidelineGuard", "environment": "development", "timestamp": "2026-03-02T12:00:00+00:00"}
+        {"status": "healthy", "service": "ClinAuditAI", "environment": "development", "timestamp": "2026-03-02T12:00:00+00:00"}
     ]}}
 
 

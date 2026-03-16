@@ -245,7 +245,7 @@ class TestHTMLReport:
         html = await generate_html_report(async_session)
 
         assert "<!DOCTYPE html>" in html
-        assert "GuidelineGuard Audit Report" in html
+        assert "ClinAuditAI Audit Report" in html
         assert "0" in html  # 0 patients
 
     @pytest.mark.asyncio

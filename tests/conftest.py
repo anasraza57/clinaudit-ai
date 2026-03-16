@@ -13,7 +13,7 @@ os.environ["AI_PROVIDER"] = "openai"
 os.environ["OPENAI_API_KEY"] = "test-key-not-real"
 os.environ["DB_HOST"] = "localhost"
 os.environ["DB_PORT"] = "5432"
-os.environ["DB_NAME"] = "guideline_guard_test"
+os.environ["DB_NAME"] = "clinaudit_ai_test"
 os.environ["DB_USER"] = "gg_user"
 os.environ["DB_PASSWORD"] = "testpassword"
 

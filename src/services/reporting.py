@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from src.models.audit import AuditResult
+from src.models.audit import AuditJob, AuditResult
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +23,25 @@ logger = logging.getLogger(__name__)
 # ── Private helpers ───────────────────────────────────────────────────
 
 
+def _model_filters(job_id: int | None, model: str | None) -> list:
+    """Build filter clauses for job_id and/or model scoping."""
+    filters: list = []
+    if job_id is not None:
+        filters.append(AuditResult.job_id == job_id)
+    if model is not None:
+        filters.append(
+            AuditResult.job_id.in_(
+                select(AuditJob.id).where(AuditJob.provider == model)
+            )
+        )
+    return filters
+
+
 async def _load_completed_results(
     session: AsyncSession,
     job_id: int | None = None,
     include_details: bool = False,
+    model: str | None = None,
 ) -> list[AuditResult]:
     """
     Shared query helper for loading completed AuditResults.
@@ -36,14 +51,15 @@ async def _load_completed_results(
         job_id: Optional job ID to scope results to a batch run.
         include_details: If True, eager-loads the Patient relationship
             (needed when the response requires pat_id).
+        model: Optional model name to scope results (e.g. 'gpt-4.1-mini').
 
     Returns:
         List of AuditResult objects with status='completed'.
     """
     query = select(AuditResult).where(AuditResult.status == "completed")
 
-    if job_id is not None:
-        query = query.where(AuditResult.job_id == job_id)
+    for f in _model_filters(job_id, model):
+        query = query.where(f)
 
     if include_details:
         query = query.options(selectinload(AuditResult.patient))
@@ -58,6 +74,7 @@ async def _load_completed_results(
 async def get_dashboard_stats(
     session: AsyncSession,
     job_id: int | None = None,
+    model: str | None = None,
 ) -> dict:
     """
     High-level summary statistics.
@@ -65,9 +82,7 @@ async def get_dashboard_stats(
     Returns total audited/failed counts, mean/median/min/max adherence
     score, and failure rate. Uses SQL columns only (no JSON parsing).
     """
-    base_filters: list = []
-    if job_id is not None:
-        base_filters.append(AuditResult.job_id == job_id)
+    base_filters = _model_filters(job_id, model)
 
     # Count completed
     q_completed = select(func.count(AuditResult.id)).where(
@@ -134,6 +149,7 @@ async def get_condition_breakdown(
     job_id: int | None = None,
     min_count: int = 1,
     sort_by: str = "count",
+    model: str | None = None,
 ) -> list[dict]:
     """
     Adherence rates grouped by diagnosis term.
@@ -146,11 +162,12 @@ async def get_condition_breakdown(
         job_id: Optional job ID to scope results.
         min_count: Minimum number of cases to include a diagnosis.
         sort_by: "count" (descending) or "adherence_rate" (ascending).
+        model: Optional model name to scope results.
 
     Returns:
         List of dicts with diagnosis, counts, and adherence_rate.
     """
-    results = await _load_completed_results(session, job_id, include_details=False)
+    results = await _load_completed_results(session, job_id, include_details=False, model=model)
 
     conditions: dict[str, dict[str, int]] = {}
     for r in results:
@@ -229,6 +246,7 @@ async def get_non_adherent_cases(
     job_id: int | None = None,
     page: int = 1,
     page_size: int = 50,
+    model: str | None = None,
 ) -> dict:
     """
     Paginated list of non-adherent diagnoses for clinical review.
@@ -236,7 +254,7 @@ async def get_non_adherent_cases(
     Returns every diagnosis that scored -1, with the patient ID,
     explanation, and list of guidelines not followed.
     """
-    results = await _load_completed_results(session, job_id, include_details=True)
+    results = await _load_completed_results(session, job_id, include_details=True, model=model)
 
     non_adherent = []
     for r in results:
@@ -288,19 +306,19 @@ async def get_score_distribution(
     session: AsyncSession,
     job_id: int | None = None,
     bins: int = 10,
+    model: str | None = None,
 ) -> dict:
     """
     Histogram of patient-level overall_score values.
 
-    Divides the 0.0–1.0 range into equal bins and counts how many
+    Divides the 0.0-1.0 range into equal bins and counts how many
     patients fall into each. Uses SQL columns only (no JSON parsing).
     """
     score_filters = [
         AuditResult.status == "completed",
         AuditResult.overall_score.isnot(None),
+        *_model_filters(job_id, model),
     ]
-    if job_id is not None:
-        score_filters.append(AuditResult.job_id == job_id)
 
     q_scores = select(AuditResult.overall_score).where(*score_filters)
     scores = [row[0] for row in (await session.execute(q_scores)).all()]
@@ -331,6 +349,7 @@ async def get_missing_care_summary(
     session: AsyncSession,
     job_id: int | None = None,
     min_count: int = 1,
+    model: str | None = None,
 ) -> dict:
     """
     Aggregate missing care opportunities across all results.
@@ -339,7 +358,7 @@ async def get_missing_care_summary(
     condition, and returns frequency counts. Helps identify systematic
     gaps in documented care.
     """
-    results = await _load_completed_results(session, job_id, include_details=True)
+    results = await _load_completed_results(session, job_id, include_details=True, model=model)
 
     # Collect all opportunities grouped by condition
     by_condition: dict[str, dict[str, int]] = {}
@@ -402,22 +421,21 @@ async def get_missing_care_summary(
 
 async def compute_system_metrics(
     session: AsyncSession,
-    job_id: int,
+    job_id: int | None = None,
+    model: str | None = None,
 ) -> dict:
     """
-    Comprehensive system-level metrics for a batch job.
+    Comprehensive system-level metrics for a batch job or model.
 
     Computes score class distribution, adherence rate, confidence
-    statistics, and per-class counts — all from stored data without
+    statistics, and per-class counts from stored data without
     any LLM calls.
     """
-    results = await _load_completed_results(session, job_id, include_details=False)
+    results = await _load_completed_results(session, job_id, include_details=False, model=model)
 
     # Count failed results for error rate
-    q_failed = select(func.count(AuditResult.id)).where(
-        AuditResult.status == "failed",
-        AuditResult.job_id == job_id,
-    )
+    fail_filters = [AuditResult.status == "failed", *_model_filters(job_id, model)]
+    q_failed = select(func.count(AuditResult.id)).where(*fail_filters)
     total_failed = (await session.execute(q_failed)).scalar() or 0
 
     class_dist = {"+2": 0, "+1": 0, "0": 0, "-1": 0, "-2": 0}

@@ -1,5 +1,5 @@
 # =============================================================================
-# GuidelineGuard — Dockerfile
+# ClinAuditAI — Dockerfile
 # =============================================================================
 # Multi-stage build for smaller final image.
 
@@ -31,7 +31,9 @@ COPY migrations/ migrations/
 COPY data/ data/
 
 # Create a non-root user for security
-RUN useradd --create-home appuser
+RUN useradd --create-home appuser \
+    && mkdir -p /home/appuser/.cache/huggingface \
+    && chown -R appuser:appuser /home/appuser/.cache
 USER appuser
 
 # Expose the application port

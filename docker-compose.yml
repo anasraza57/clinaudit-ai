@@ -1,5 +1,5 @@
 # =============================================================================
-# GuidelineGuard — Docker Compose
+# ClinAuditAI — Docker Compose
 # =============================================================================
 # Usage:
 #   docker compose up --build        # Start all services
@@ -11,13 +11,14 @@ services:
   # -- Application --
   app:
     build: .
-    container_name: guidelineguard-app
+    container_name: clinauditai-app
     ports:
       - "${APP_PORT:-8000}:8000"
     env_file:
       - .env
     environment:
       - DB_HOST=db
+      - DB_PORT=5432
     depends_on:
       db:
         condition: service_healthy
@@ -26,6 +27,8 @@ services:
       - ./src:/app/src:ro
       # Mount data directory for access to CSV/index files
       - ./data:/app/data:ro
+      # Cache HuggingFace models so PubMedBERT isn't re-downloaded on every rebuild
+      - hf_cache:/home/appuser/.cache/huggingface
     command: >
       uvicorn src.main:app
       --host 0.0.0.0
@@ -36,9 +39,9 @@ services:
   # -- Database --
   db:
     image: postgres:16-alpine
-    container_name: guidelineguard-db
+    container_name: clinauditai-db
     environment:
-      POSTGRES_DB: ${DB_NAME:-guideline_guard}
+      POSTGRES_DB: ${DB_NAME:-clinaudit_ai}
       POSTGRES_USER: ${DB_USER:-gg_user}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme_in_production}
     ports:
@@ -46,7 +49,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-gg_user} -d ${DB_NAME:-guideline_guard}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-gg_user} -d ${DB_NAME:-clinaudit_ai}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -54,3 +57,4 @@ services:
 
 volumes:
   postgres_data:
+  hf_cache:

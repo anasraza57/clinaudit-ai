@@ -2,7 +2,7 @@
 
 ## Overview
 
-GuidelineGuard exposes 14 REST endpoints across 4 groups. This document explains every endpoint: what it does, when to use it, what the parameters mean, and what the response looks like.
+ClinAuditAI exposes 20+ REST endpoints across 6 groups (Health, Data, Audit, Reports, Exports, Evaluation). This document explains the core endpoints: what they do, when to use them, what the parameters mean, and what the response looks like. For evaluation endpoints, see also `13-evaluation-framework-explained.md`.
 
 All endpoints are also available interactively at **http://localhost:8000/docs** (Swagger UI) when the server is running.
 
@@ -48,7 +48,7 @@ Steps 1–2 happen once during setup. Steps 3–6 are the ongoing usage.
 ```json
 {
   "status": "healthy",
-  "service": "GuidelineGuard",
+  "service": "ClinAuditAI",
   "environment": "development",
   "timestamp": "2026-03-02T12:00:00+00:00"
 }
@@ -311,6 +311,8 @@ GET /api/v1/audit/jobs/1
 - `job_id` (path, required) — the job ID
 - `page` (query, default: 1) — page number
 - `page_size` (query, default: 20, max: 100) — results per page
+
+**Ordering:** Results are sorted by `pat_id` then `AuditResult.id` for stable, deterministic pagination. The same page always returns the same results.
 
 **Example request:**
 ```
@@ -587,9 +589,9 @@ GET /api/v1/reports/score-distribution?bins=5
 
 ## Common Patterns
 
-### The `?job_id=N` Parameter
+### The `?job_id=N` and `?model=X` Parameters
 
-All report endpoints accept `?job_id=N`. This lets you compare results across different batch runs:
+All report and export endpoints accept `?job_id=N` to scope to a specific batch run, and `?model=X` to scope to all results from a specific LLM model (combining results across multiple batch jobs that used the same model).
 
 ```bash
 # Results from Monday's run
@@ -597,9 +599,15 @@ GET /api/v1/reports/dashboard?job_id=1
 
 # Results from Friday's run (maybe after changing LLM settings)
 GET /api/v1/reports/dashboard?job_id=2
+
+# All results from GPT-4.1-mini (across all jobs that used this model)
+GET /api/v1/reports/dashboard?model=gpt-4.1-mini
+
+# All results from Mistral-Small
+GET /api/v1/reports/conditions?model=mistral-small&sort_by=adherence_rate
 ```
 
-Omit `job_id` to see results across ALL completed audits.
+Omit both `job_id` and `model` to see results across ALL completed audits. The comparison HTML export also supports `?model_a=X&model_b=Y` as an alternative to `?job_a=N&job_b=M`.
 
 ### Pagination
 

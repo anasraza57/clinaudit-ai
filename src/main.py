@@ -140,7 +140,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
 
     app = FastAPI(
-        title="GuidelineGuard API",
+        title="ClinAuditAI API",
         description=(
             "An agentic AI framework for evaluating MSK consultation "
             "adherence to NICE clinical guidelines in primary care."

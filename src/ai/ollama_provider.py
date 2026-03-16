@@ -115,13 +115,13 @@ class OllamaProvider(AIProvider):
         model: str | None = None,
     ) -> EmbeddingResponse:
         """
-        Not supported — GuidelineGuard uses PubMedBERT for embeddings.
+        Not supported — ClinAuditAI uses PubMedBERT for embeddings.
 
         Raises:
             AIProviderError: Always, with a helpful message.
         """
         raise AIProviderError(
-            "Ollama embed() is not used. GuidelineGuard uses PubMedBERT "
+            "Ollama embed() is not used. ClinAuditAI uses PubMedBERT "
             "for medical embeddings (via the Embedder service). "
             "The LLM provider is only used for chat/scoring.",
             provider="ollama",

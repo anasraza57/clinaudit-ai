@@ -9,7 +9,7 @@ def test_settings_loads_defaults():
     get_settings.cache_clear()
 
     settings = get_settings()
-    assert settings.app_name == "GuidelineGuard"
+    assert settings.app_name == "ClinAuditAI"
     assert settings.app_port == 8000
     assert settings.ai_provider == "openai"
     assert settings.retriever_top_k == 5

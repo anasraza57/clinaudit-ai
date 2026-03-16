@@ -957,9 +957,14 @@ async def run_agent_evaluation(
     session: AsyncSession,
     ai_provider: AIProvider,
     limit: int = 5,
+    offset: int = 0,
+    model: str | None = None,
 ) -> dict:
     """
     Run the full pipeline for a sample of patients and evaluate all 4 agents.
+
+    Patients are sorted by pat_id for deterministic, resumable evaluation.
+    Use offset to continue from where you left off.
 
     Expensive: each patient runs the complete pipeline plus LLM-as-Judge
     calls for query, retriever (per-guideline), and scorer evaluation.
@@ -967,8 +972,8 @@ async def run_agent_evaluation(
     from src.models.patient import Patient
     from src.services.pipeline import AuditPipeline
 
-    # Pick random patients
-    q = select(Patient.pat_id).order_by(func.random()).limit(limit)
+    # Deterministic ordering by pat_id for resumable evaluation
+    q = select(Patient.pat_id).order_by(Patient.pat_id).offset(offset).limit(limit)
     result = await session.execute(q)
     pat_ids = [row[0] for row in result.all()]
 
@@ -1017,6 +1022,8 @@ async def run_agent_evaluation(
     # Aggregate standard metrics
     agg = aggregate_evaluations(evaluations)
     result_dict = agg.summary()
+    if model:
+        result_dict["model"] = model
 
     # Aggregate retriever IR metrics
     if retriever_ir_metrics:

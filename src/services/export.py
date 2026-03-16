@@ -246,9 +246,55 @@ def _svg_condition_bars(
     )
 
 
+def _load_saved_evals_single_model(model: str) -> tuple[dict | None, dict | None]:
+    """Load pre-computed scorer and agent eval results for a single model.
+
+    Returns (scorer_eval, agent_eval) dicts, or (None, None) if not found.
+    """
+    from pathlib import Path
+
+    _SLUG_MAP = {
+        "gpt-4.1-mini": "gpt4_mini",
+        "gpt-4o-mini": "gpt4_mini",
+        "gpt-4.1": "gpt4",
+        "mistral-small": "mistral_small",
+    }
+    eval_dir = Path("data/eval_results")
+    slug = _SLUG_MAP.get(model, model.replace(".", "").replace("-", "_").replace(" ", "_"))
+
+    # Scorer: both judges for this model
+    scorer_eval = {}
+    for judge in ["ollama", "openai"]:
+        path = eval_dir / f"scorer_eval_{slug}_{judge}_judge_100.json"
+        if not path.exists():
+            path = eval_dir / f"scorer_eval_{slug}_{judge}_judge.json"
+        if path.exists():
+            data = json.load(open(path))
+            scorer_eval[f"{judge}_judge"] = {
+                "mean_reasoning_quality": data.get("mean_reasoning_quality", 0),
+                "mean_citation_accuracy": data.get("mean_citation_accuracy", 0),
+                "mean_score_calibration": data.get("mean_score_calibration", 0),
+                "total_patients": data.get("total_patients", 0),
+                "total_diagnoses": data.get("total_diagnoses", 0),
+            }
+
+    # Agent eval for this model
+    agent_eval = None
+    path = eval_dir / f"agents_eval_{slug}_50.json"
+    if not path.exists():
+        matches = list(eval_dir.glob(f"agents_eval_{slug}*.json"))
+        if matches:
+            path = matches[0]
+    if path.exists():
+        agent_eval = json.load(open(path))
+
+    return (scorer_eval if scorer_eval else None, agent_eval)
+
+
 async def _load_results_with_patients(
     session: AsyncSession,
     job_id: int | None = None,
+    model: str | None = None,
 ) -> list[AuditResult]:
     """Load completed audit results with patient data eager-loaded."""
     query = (
@@ -259,6 +305,12 @@ async def _load_results_with_patients(
     )
     if job_id is not None:
         query = query.where(AuditResult.job_id == job_id)
+    if model is not None:
+        query = query.where(
+            AuditResult.job_id.in_(
+                select(AuditJob.id).where(AuditJob.provider == model)
+            )
+        )
 
     result = await session.execute(query)
     return list(result.scalars().all())
@@ -292,6 +344,7 @@ def _parse_details(details_json: str | None) -> list[dict]:
 async def _collect_chart_data(
     session: AsyncSession,
     job_id: int | None = None,
+    model: str | None = None,
 ) -> tuple[list[float], dict[str, int], list[tuple]]:
     """
     Collect scores, level_counts, and condition_rows for chart generation.
@@ -301,7 +354,7 @@ async def _collect_chart_data(
     - level_counts: dict with keys compliant/partial/not_relevant/non_compliant/risky
     - condition_rows: list of (term, total, adherent, non_adherent, rate) tuples
     """
-    results = await _load_results_with_patients(session, job_id)
+    results = await _load_results_with_patients(session, job_id, model=model)
 
     scores = [r.overall_score for r in results if r.overall_score is not None]
 
@@ -719,6 +772,7 @@ async def export_charts_to_png(
 async def generate_csv(
     session: AsyncSession,
     job_id: int | None = None,
+    model: str | None = None,
 ) -> str:
     """
     Generate a CSV string with one row per diagnosis per patient.
@@ -726,7 +780,7 @@ async def generate_csv(
     Columns: pat_id, overall_score, diagnosis, index_date, score,
     explanation, guidelines_followed, guidelines_not_followed
     """
-    results = await _load_results_with_patients(session, job_id)
+    results = await _load_results_with_patients(session, job_id, model=model)
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -792,17 +846,37 @@ async def generate_csv(
 async def generate_html_report(
     session: AsyncSession,
     job_id: int | None = None,
+    model: str | None = None,
+    use_saved_evals: bool = False,
 ) -> str:
     """
     Generate a self-contained HTML report with dashboard stats,
     per-condition breakdown, and per-patient detail tables.
     """
-    results = await _load_results_with_patients(session, job_id)
+    from src.services.evaluation import evaluate_extractor_from_db
+    from src.services.reporting import compute_system_metrics, get_missing_care_summary
+
+    results = await _load_results_with_patients(session, job_id, model=model)
 
     # Collect chart data (scores, level counts, condition breakdown)
     scores, level_counts, condition_rows = await _collect_chart_data(
-        session, job_id,
+        session, job_id, model=model,
     )
+
+    # System metrics (score class distribution, adherence rate, confidence)
+    system_metrics = await compute_system_metrics(session, job_id, model=model)
+
+    # Extractor quality
+    extractor = await evaluate_extractor_from_db(session)
+
+    # Aggregated missing care
+    missing_care = await get_missing_care_summary(session, job_id, min_count=1, model=model)
+
+    # Saved evaluation results (scorer + agent)
+    scorer_eval = None
+    agent_eval = None
+    if use_saved_evals and model:
+        scorer_eval, agent_eval = _load_saved_evals_single_model(model)
 
     # Compute summary stats
     total_patients = len(results)
@@ -859,6 +933,7 @@ async def generate_html_report(
     html = _build_html(
         generated_at=generated_at,
         job_info=job_info,
+        model_name=model,
         total_patients=total_patients,
         mean_score=mean_score,
         median_score=median_score,
@@ -868,6 +943,11 @@ async def generate_html_report(
         patient_rows=patient_rows,
         scores=scores,
         level_counts=level_counts,
+        system_metrics=system_metrics,
+        extractor=extractor,
+        missing_care=missing_care,
+        scorer_eval=scorer_eval,
+        agent_eval=agent_eval,
     )
 
     return html
@@ -899,10 +979,212 @@ def _score_badge(score, judgement: str = "") -> str:
     return '<span class="badge">N/A</span>'
 
 
+# ── Individual report section builders ───────────────────────────────
+
+
+def _build_system_metrics_html(system_metrics: dict | None) -> str:
+    """Build HTML section for system-level classification metrics."""
+    if not system_metrics:
+        return ""
+
+    dist = system_metrics.get("score_class_distribution", {})
+    adherence = system_metrics.get("adherence_rate", 0)
+    error_rate = system_metrics.get("error_rate", 0)
+    conf = system_metrics.get("confidence_stats", {})
+    total = system_metrics.get("total_diagnoses", 0)
+
+    dist_rows = ""
+    for label in ["+2", "+1", "0", "-1", "-2"]:
+        count = dist.get(label, 0)
+        pct = (count / total * 100) if total else 0
+        dist_rows += f"<tr><td>{label}</td><td>{count}</td><td>{pct:.1f}%</td></tr>"
+
+    conf_rows = ""
+    if conf:
+        for key in ["mean", "median", "min", "max", "std"]:
+            val = conf.get(key)
+            if val is not None:
+                conf_rows += f"<tr><td>{key.capitalize()}</td><td>{val:.4f}</td></tr>"
+
+    return f"""
+<h2>System Metrics</h2>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.5rem;margin-bottom:1.5rem;">
+    <div>
+        <h3 style="font-size:0.9rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.75rem;">Score Class Distribution</h3>
+        <table>
+            <thead><tr><th>Score</th><th>Count</th><th>%</th></tr></thead>
+            <tbody>{dist_rows}</tbody>
+        </table>
+    </div>
+    <div>
+        <h3 style="font-size:0.9rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.75rem;">Key Rates</h3>
+        <table>
+            <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+            <tbody>
+                <tr><td>Total Diagnoses</td><td>{total}</td></tr>
+                <tr><td>Adherence Rate</td><td>{adherence:.1%}</td></tr>
+                <tr><td>Error Rate</td><td>{error_rate:.1%}</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div>
+        <h3 style="font-size:0.9rem;color:var(--text-light);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.75rem;">Confidence Statistics</h3>
+        <table>
+            <thead><tr><th>Stat</th><th>Value</th></tr></thead>
+            <tbody>{conf_rows if conf_rows else '<tr><td colspan="2" style="color:var(--text-light)">No confidence data</td></tr>'}</tbody>
+        </table>
+    </div>
+</div>
+"""
+
+
+def _build_extractor_html(extractor: dict | None) -> str:
+    """Build HTML section for extractor quality (per-category P/R/F1)."""
+    if not extractor:
+        return ""
+
+    per_cat = extractor.get("per_category", {})
+    if not per_cat:
+        return ""
+
+    total_entries = extractor.get("total_concepts", extractor.get("total_entries", 0))
+    match_rate = extractor.get("rule_match_rate", 0)
+
+    rows = ""
+    for cat, metrics in sorted(per_cat.items()):
+        p = metrics.get("precision", 0)
+        r = metrics.get("recall", 0)
+        f1 = metrics.get("f1", 0)
+        tp = metrics.get("tp", 0)
+        rows += f"<tr><td>{cat.capitalize()}</td><td>{tp}</td><td>{p:.2f}</td><td>{r:.2f}</td><td>{f1:.2f}</td></tr>"
+
+    return f"""
+<h2>Extractor Quality</h2>
+<p style="color:var(--text-light);margin-bottom:0.75rem;">
+    Rule-based category validation against stored SNOMED categories.
+    {total_entries} entries, {match_rate:.0%} match rate.
+</p>
+<table>
+    <thead><tr><th>Category</th><th>TP</th><th>Precision</th><th>Recall</th><th>F1</th></tr></thead>
+    <tbody>{rows}</tbody>
+</table>
+"""
+
+
+def _build_scorer_eval_single_html(scorer_eval: dict | None, model_name: str | None) -> str:
+    """Build HTML section for scorer evaluation for a single model (both judges)."""
+    if not scorer_eval:
+        return ""
+
+    model_label = model_name or "Model"
+
+    def _row(judge_label, data):
+        if not data:
+            return f"<tr><td>{judge_label}</td><td colspan='3' style='color:var(--text-light)'>Not available</td></tr>"
+        return (
+            f"<tr><td>{judge_label}</td>"
+            f"<td>{data['mean_reasoning_quality']:.2f}</td>"
+            f"<td>{data['mean_citation_accuracy']:.2f}</td>"
+            f"<td>{data['mean_score_calibration']:.2f}</td></tr>"
+        )
+
+    sample_info = ""
+    first_eval = next((v for v in scorer_eval.values() if isinstance(v, dict)), None)
+    if first_eval and first_eval.get("total_patients"):
+        sample_info = f" ({first_eval['total_patients']} patients, {first_eval.get('total_diagnoses', '?')} diagnoses)"
+
+    rows = ""
+    rows += _row("Judged by gpt-4.1-mini", scorer_eval.get("openai_judge"))
+    rows += _row("Judged by mistral-small", scorer_eval.get("ollama_judge"))
+
+    return f"""
+<h2>LLM-as-Judge: Scorer Quality</h2>
+<p style="color:var(--text-light);margin-bottom:0.75rem;">
+    {model_label}'s scoring output evaluated by two independent judges.{sample_info}
+    Scores rated 1-5, where 5 is best.
+</p>
+<table>
+    <thead><tr>
+        <th>Judge</th>
+        <th>Reasoning Quality</th>
+        <th>Citation Accuracy</th>
+        <th>Score Calibration</th>
+    </tr></thead>
+    <tbody>{rows}</tbody>
+</table>
+"""
+
+
+def _build_agent_eval_single_html(agent_eval: dict | None, model_name: str | None) -> str:
+    """Build HTML section for agent evaluation for a single model."""
+    if not agent_eval:
+        return ""
+
+    model_label = model_name or "Model"
+    total = agent_eval.get("total_patients", 0)
+
+    rows = _agent_eval_rows(agent_eval)
+    if not rows:
+        return ""
+
+    # Also add extractor match rate from agent eval
+    ext = agent_eval.get("extractor", {})
+    ext_row = ""
+    if ext:
+        ext_row = f"<tr><td>Extractor Match Rate</td><td>{ext.get('rule_match_rate', 0):.2f}</td></tr>"
+
+    rows_html = ext_row + "\n".join(rows)
+
+    return f"""
+<h2>Agent-Level Evaluation (Pipeline Run)</h2>
+<p style="color:var(--text-light);margin-bottom:0.75rem;">
+    {model_label}: full pipeline executed on {total} patients with LLM-as-Judge rating each agent's output.
+</p>
+<table>
+    <thead><tr><th>Agent / Metric</th><th>Score</th></tr></thead>
+    <tbody>{rows_html}</tbody>
+</table>
+"""
+
+
+def _build_missing_care_html(missing_care_data: dict | None) -> str:
+    """Build HTML section for aggregated missing care opportunities."""
+    if not missing_care_data:
+        return ""
+
+    by_condition = missing_care_data.get("opportunities_by_condition", [])
+    if not by_condition:
+        return ""
+
+    total_opps = missing_care_data.get("total_opportunities", 0)
+
+    rows = ""
+    for item in by_condition:
+        condition = item.get("condition", "Unknown")
+        total = item.get("total_opportunities", 0)
+        opps = item.get("opportunities", [])
+        opp_text = ", ".join(
+            f"{o['action']} ({o['count']})" for o in opps
+        )
+        rows += f"<tr><td>{condition}</td><td>{total}</td><td style='font-size:0.85rem'>{opp_text}</td></tr>"
+
+    return f"""
+<h2>Aggregated Missing Care Opportunities</h2>
+<p style="color:var(--text-light);margin-bottom:0.75rem;">
+    {total_opps} care gaps flagged across all patients, grouped by diagnosis.
+</p>
+<table>
+    <thead><tr><th>Diagnosis</th><th>Count</th><th>Opportunities</th></tr></thead>
+    <tbody>{rows}</tbody>
+</table>
+"""
+
+
 def _build_html(
     *,
     generated_at: str,
     job_info: str,
+    model_name: str | None = None,
     total_patients: int,
     mean_score: float,
     median_score: float,
@@ -912,6 +1194,11 @@ def _build_html(
     patient_rows: list[dict],
     scores: list[float] | None = None,
     level_counts: dict[str, int] | None = None,
+    system_metrics: dict | None = None,
+    extractor: dict | None = None,
+    missing_care: dict | None = None,
+    scorer_eval: dict | None = None,
+    agent_eval: dict | None = None,
 ) -> str:
     """Build the complete HTML report string."""
 
@@ -948,7 +1235,7 @@ def _build_html(
         for d in p["details"]:
             followed = ", ".join(d["followed"]) if d["followed"] else "None"
             not_followed = ", ".join(d["not_followed"]) if d["not_followed"] else "None"
-            missing_care = d.get("missing_care", [])
+            diag_missing = d.get("missing_care", [])
             confidence_html = ""
             if d.get("confidence") is not None:
                 conf_pct = f"{d['confidence']:.0%}"
@@ -957,8 +1244,8 @@ def _build_html(
             if d.get("cited_guideline_text"):
                 cited_html = f'<blockquote class="cited-guideline">{d["cited_guideline_text"]}</blockquote>'
             missing_care_html = ""
-            if missing_care:
-                missing_care_str = ", ".join(missing_care)
+            if diag_missing:
+                missing_care_str = ", ".join(diag_missing)
                 missing_care_html = f'\n                    <span class="tag tag-missing-care">Missing care: {missing_care_str}</span>'
             diagnosis_rows += f"""
             <div class="diagnosis-card">
@@ -991,7 +1278,7 @@ def _build_html(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GuidelineGuard Audit Report</title>
+<title>ClinAuditAI &mdash; Agentic AI for Automated Clinical Guideline Adherence Auditing in Musculoskeletal Primary Care</title>
 <style>
     :root {{
         --green: #16a34a;
@@ -1017,6 +1304,7 @@ def _build_html(
     h2 {{ font-size: 1.3rem; margin: 2rem 0 1rem; border-bottom: 2px solid var(--border); padding-bottom: 0.5rem; }}
     h3 {{ font-size: 1rem; margin: 0; }}
     .subtitle {{ color: var(--text-light); font-size: 0.9rem; margin-bottom: 2rem; }}
+    .tagline {{ color: var(--text-light); font-size: 0.95rem; font-style: italic; margin-bottom: 0.5rem; }}
     .stats-grid {{
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -1135,7 +1423,8 @@ def _build_html(
 </head>
 <body>
 
-<h1>GuidelineGuard Audit Report</h1>
+<h1>ClinAuditAI &mdash; Audit Report</h1>
+<p class="tagline">Agentic AI for Automated Clinical Guideline Adherence Auditing in Musculoskeletal Primary Care</p>
 <p class="subtitle">Generated {generated_at} {('&mdash; ' + job_info) if job_info else ''}</p>
 
 <div class="stats-grid">
@@ -1189,11 +1478,17 @@ def _build_html(
     </tbody>
 </table>
 
+{_build_system_metrics_html(system_metrics)}
+{_build_extractor_html(extractor)}
+{_build_scorer_eval_single_html(scorer_eval, model_name)}
+{_build_agent_eval_single_html(agent_eval, model_name)}
+{_build_missing_care_html(missing_care)}
+
 <h2>Patient Results</h2>
 {patient_html if patient_html else '<p style="color:var(--text-light)">No patient results available</p>'}
 
 <div class="footer">
-    GuidelineGuard &mdash; MSK Clinical Guideline Adherence Audit System
+    ClinAuditAI &mdash; Agentic AI for Automated Clinical Guideline Adherence Auditing in Musculoskeletal Primary Care
 </div>
 
 </body>
@@ -1222,13 +1517,19 @@ def _build_scorer_eval_section(
             f"<td>{data['mean_score_calibration']:.2f}</td></tr>"
         )
 
+    # Determine sample size from saved data
+    sample_info = ""
+    first_eval = next((v for v in scorer_evals.values() if isinstance(v, dict)), None)
+    if first_eval and first_eval.get("total_patients"):
+        sample_info = f" ({first_eval['total_patients']} patients, {first_eval.get('total_diagnoses', '?')} diagnoses)"
+
     rows = ""
     rows += _scorer_row(
-        f"{label_a} (judged by GPT-4o-mini)",
+        f"{label_a} (judged by gpt-4.1-mini)",
         scorer_evals.get("job_a_openai_judge"),
     )
     rows += _scorer_row(
-        f"{label_b} (judged by GPT-4o-mini)",
+        f"{label_b} (judged by gpt-4.1-mini)",
         scorer_evals.get("job_b_openai_judge"),
     )
     rows += _scorer_row(
@@ -1242,8 +1543,8 @@ def _build_scorer_eval_section(
 
     # Note about cross-model judging
     note = (
-        "Each model's output is evaluated by both judges (GPT-4o-mini and mistral-small) "
-        "for cross-model validation. Scores are rated 1–5, where 5 is best."
+        "Each model's output is evaluated by both judges (gpt-4.1-mini and mistral-small) "
+        f"for cross-model validation.{sample_info} Scores are rated 1–5, where 5 is best."
     )
 
     return f"""
@@ -1264,52 +1565,46 @@ def _build_scorer_eval_section(
 
 
 def _build_agent_eval_section(agent_eval: dict | None) -> str:
-    """Build HTML section for full pipeline agent evaluation results."""
+    """Build HTML section for full pipeline agent evaluation results.
+
+    Supports three formats:
+    - Single eval dict: {"total_patients": N, "query": {...}, ...}
+    - Judge-keyed: {"openai_judge": {...}, "ollama_judge": {...}}
+    - Model-keyed: {"model_a": {...}, "model_b": {...}}
+    """
     if not agent_eval:
         return ""
 
-    # Support both single eval dict and dict-of-dicts keyed by judge name
-    evals = agent_eval if "openai_judge" in agent_eval or "ollama_judge" in agent_eval else {"judge": agent_eval}
+    # Detect format and normalise to dict-of-dicts
+    if "model_a" in agent_eval or "model_b" in agent_eval:
+        evals = agent_eval
+    elif "openai_judge" in agent_eval or "ollama_judge" in agent_eval:
+        evals = agent_eval
+    else:
+        evals = {"judge": agent_eval}
+
+    # Build a comparison table when we have two models side-by-side
+    has_two_models = "model_a" in evals and "model_b" in evals
+    if has_two_models:
+        return _build_agent_eval_comparison(evals["model_a"], evals["model_b"])
 
     sections = []
-    for judge_label, eval_data in evals.items():
+    for label, eval_data in evals.items():
         if not isinstance(eval_data, dict) or "total_patients" not in eval_data:
             continue
 
         total = eval_data.get("total_patients", 0)
-        judge_display = {
+        display = {
             "openai_judge": "GPT-4o-mini",
             "ollama_judge": "mistral-small",
             "judge": "LLM Judge",
-        }.get(judge_label, judge_label)
+        }.get(label, eval_data.get("model", label))
 
-        rows = []
-        # Query Generator
-        query = eval_data.get("query")
-        if query:
-            rows.append(f"<tr><td>Query Relevance (1-5)</td><td>{query.get('mean_relevance', 0):.2f}</td></tr>")
-            rows.append(f"<tr><td>Query Coverage (1-5)</td><td>{query.get('mean_coverage', 0):.2f}</td></tr>")
-
-        # Retriever IR
-        ir = eval_data.get("retriever_ir")
-        if ir:
-            rows.append(f"<tr><td>Retriever Precision@k</td><td>{ir.get('mean_precision_at_k', 0):.3f}</td></tr>")
-            rows.append(f"<tr><td>Retriever Recall@k</td><td>{ir.get('mean_recall_at_k', 0):.3f}</td></tr>")
-            rows.append(f"<tr><td>Retriever nDCG</td><td>{ir.get('mean_ndcg', 0):.3f}</td></tr>")
-            rows.append(f"<tr><td>Retriever MRR</td><td>{ir.get('mean_mrr', 0):.3f}</td></tr>")
-            rows.append(f"<tr><td>Retriever Mean Relevance (1-5)</td><td>{ir.get('mean_relevance', 0):.2f}</td></tr>")
-
-        # Scorer
-        scorer = eval_data.get("scorer")
-        if scorer:
-            rows.append(f"<tr><td>Scorer Reasoning Quality (1-5)</td><td>{scorer.get('mean_reasoning_quality', 0):.2f}</td></tr>")
-            rows.append(f"<tr><td>Scorer Citation Accuracy (1-5)</td><td>{scorer.get('mean_citation_accuracy', 0):.2f}</td></tr>")
-            rows.append(f"<tr><td>Scorer Calibration (1-5)</td><td>{scorer.get('mean_score_calibration', 0):.2f}</td></tr>")
-
+        rows = _agent_eval_rows(eval_data)
         rows_html = "\n".join(rows)
         sections.append(f"""
 <div>
-    <h3 style="font-size:0.95rem;margin-bottom:0.75rem;">Judge: {judge_display} ({total} patients)</h3>
+    <h3 style="font-size:0.95rem;margin-bottom:0.75rem;">{display} ({total} patients)</h3>
     <table>
         <thead><tr><th>Agent / Metric</th><th>Score</th></tr></thead>
         <tbody>{rows_html}</tbody>
@@ -1322,25 +1617,109 @@ def _build_agent_eval_section(agent_eval: dict | None) -> str:
 
 <h2>Agent-Level Evaluation (Pipeline Run)</h2>
 <p style="color:var(--muted);margin-bottom:0.75rem;">
-    Full pipeline executed on random patients with LLM-as-Judge rating each
-    agent's output. Both GPT-4o-mini and mistral-small served as independent judges.
+    Full pipeline executed on sampled patients with LLM-as-Judge rating each agent's output.
 </p>
 <div class="two-col">
 {grid_content}
-</div>
-"""
+</div>"""
+
+
+def _agent_eval_rows(eval_data: dict) -> list[str]:
+    """Extract metric rows from a single agent eval dict."""
+    rows = []
+    query = eval_data.get("query")
+    if query:
+        rows.append(("Query Relevance (1-5)", query.get("mean_relevance", 0), ".2f"))
+        rows.append(("Query Coverage (1-5)", query.get("mean_coverage", 0), ".2f"))
+    ir = eval_data.get("retriever_ir")
+    if ir:
+        rows.append(("Retriever Precision@k", ir.get("mean_precision_at_k", 0), ".3f"))
+        rows.append(("Retriever Recall@k", ir.get("mean_recall_at_k", 0), ".3f"))
+        rows.append(("Retriever nDCG", ir.get("mean_ndcg", 0), ".3f"))
+        rows.append(("Retriever MRR", ir.get("mean_mrr", 0), ".3f"))
+    scorer = eval_data.get("scorer")
+    if scorer:
+        rows.append(("Scorer Reasoning (1-5)", scorer.get("mean_reasoning_quality", 0), ".2f"))
+        rows.append(("Scorer Citation (1-5)", scorer.get("mean_citation_accuracy", 0), ".2f"))
+        rows.append(("Scorer Calibration (1-5)", scorer.get("mean_score_calibration", 0), ".2f"))
+    return [f"<tr><td>{label}</td><td>{val:{fmt}}</td></tr>" for label, val, fmt in rows]
+
+
+def _build_agent_eval_comparison(eval_a: dict, eval_b: dict) -> str:
+    """Build a side-by-side comparison table for two model agent evaluations."""
+    label_a = eval_a.get("model", "Model A")
+    label_b = eval_b.get("model", "Model B")
+    total_a = eval_a.get("total_patients", 0)
+    total_b = eval_b.get("total_patients", 0)
+
+    def _row(name, val_a, val_b, fmt=".2f"):
+        diff = val_a - val_b
+        if abs(diff) < 0.001:
+            cls = ""
+        elif diff > 0:
+            cls = ' class="val-better"'
+        else:
+            cls = ' class="val-worse"'
+        return (
+            f"<tr><td>{name}</td>"
+            f"<td>{val_a:{fmt}}</td>"
+            f"<td>{val_b:{fmt}}</td>"
+            f"<td{cls}>{diff:+{fmt}}</td></tr>"
+        )
+
+    rows = ""
+    # Extractor
+    ext_a = eval_a.get("extractor", {})
+    ext_b = eval_b.get("extractor", {})
+    rows += _row("Extractor Match Rate", ext_a.get("rule_match_rate", 0), ext_b.get("rule_match_rate", 0), ".2f")
+    # Query
+    qa = eval_a.get("query", {})
+    qb = eval_b.get("query", {})
+    rows += _row("Query Relevance (1-5)", qa.get("mean_relevance", 0), qb.get("mean_relevance", 0))
+    rows += _row("Query Coverage (1-5)", qa.get("mean_coverage", 0), qb.get("mean_coverage", 0))
+    # Retriever IR
+    ira = eval_a.get("retriever_ir", {})
+    irb = eval_b.get("retriever_ir", {})
+    rows += _row("Retriever Precision@k", ira.get("mean_precision_at_k", 0), irb.get("mean_precision_at_k", 0), ".3f")
+    rows += _row("Retriever Recall@k", ira.get("mean_recall_at_k", 0), irb.get("mean_recall_at_k", 0), ".3f")
+    rows += _row("Retriever nDCG", ira.get("mean_ndcg", 0), irb.get("mean_ndcg", 0), ".3f")
+    rows += _row("Retriever MRR", ira.get("mean_mrr", 0), irb.get("mean_mrr", 0), ".3f")
+    # Scorer
+    sa = eval_a.get("scorer", {})
+    sb = eval_b.get("scorer", {})
+    rows += _row("Scorer Reasoning (1-5)", sa.get("mean_reasoning_quality", 0), sb.get("mean_reasoning_quality", 0))
+    rows += _row("Scorer Citation (1-5)", sa.get("mean_citation_accuracy", 0), sb.get("mean_citation_accuracy", 0))
+    rows += _row("Scorer Calibration (1-5)", sa.get("mean_score_calibration", 0), sb.get("mean_score_calibration", 0))
+
+    return f"""
+<!-- ── Full Agent Evaluation ──────────────────────────────────────── -->
+
+<h2>Agent-Level Evaluation (Pipeline Run)</h2>
+<p style="color:var(--muted);margin-bottom:0.75rem;">
+    Full pipeline executed on {total_a} patients per model with LLM-as-Judge rating each agent's output.
+    Same patients evaluated for both models (deterministic pat_id ordering).
+</p>
+<table>
+    <thead><tr><th>Metric</th><th>{label_a}</th><th>{label_b}</th><th>Diff</th></tr></thead>
+    <tbody>{rows}</tbody>
+</table>"""
 
 
 async def generate_comparison_html(
     session: AsyncSession,
-    job_a_id: int,
-    job_b_id: int,
+    job_a_id: int | None = None,
+    job_b_id: int | None = None,
     *,
+    model_a: str | None = None,
+    model_b: str | None = None,
     scorer_evals: dict | None = None,
     agent_eval: dict | None = None,
 ) -> str:
     """
-    Generate a self-contained HTML report comparing two batch jobs.
+    Generate a self-contained HTML report comparing two batch jobs or models.
+
+    Accepts either job IDs or model names (or a mix). When using model
+    names, aggregates results across all jobs for that model.
 
     Pulls together system metrics, cross-model classification, extractor
     quality, missing care, per-patient comparison, LLM-as-Judge scorer
@@ -1356,27 +1735,52 @@ async def generate_comparison_html(
     from src.services.evaluation import evaluate_extractor_from_db
     from src.services.reporting import compute_system_metrics, get_missing_care_summary
 
+    if job_a_id is None and model_a is None:
+        raise ValueError("Model A requires either job_a_id or model_a")
+    if job_b_id is None and model_b is None:
+        raise ValueError("Model B requires either job_b_id or model_b")
+
     # ── Gather all data in parallel-friendly order ──────────────────
-    job_a = await _get_job_info(session, job_a_id)
-    job_b = await _get_job_info(session, job_b_id)
+    from src.config.settings import get_settings
+    settings = get_settings()
 
-    label_a = f"{job_a.provider.capitalize() if job_a and job_a.provider else 'Model A'} (Job {job_a_id})"
-    label_b = f"{job_b.provider.capitalize() if job_b and job_b.provider else 'Model B'} (Job {job_b_id})"
+    if job_a_id is not None:
+        job_a = await _get_job_info(session, job_a_id)
+        label_a = settings.model_name_for_provider(job_a.provider if job_a else None)
+    else:
+        label_a = model_a
 
-    metrics_a = await compute_system_metrics(session, job_a_id)
-    metrics_b = await compute_system_metrics(session, job_b_id)
+    if job_b_id is not None:
+        job_b = await _get_job_info(session, job_b_id)
+        label_b = settings.model_name_for_provider(job_b.provider if job_b else None)
+    else:
+        label_b = model_b
 
-    comparison = (await compare_jobs(session, job_a_id, job_b_id)).summary()
+    metrics_a = await compute_system_metrics(session, job_a_id, model=model_a)
+    metrics_b = await compute_system_metrics(session, job_b_id, model=model_b)
 
-    cross = await compute_cross_model_classification(session, job_a_id, job_b_id)
+    comparison = (await compare_jobs(
+        session, job_a_id, job_b_id, model_a=model_a, model_b=model_b,
+    )).summary()
 
-    scores_a, levels_a, conditions_a = await _collect_chart_data(session, job_a_id)
-    scores_b, levels_b, conditions_b = await _collect_chart_data(session, job_b_id)
+    cross = await compute_cross_model_classification(
+        session, job_a_id, job_b_id, model_a=model_a, model_b=model_b,
+    )
+
+    scores_a, levels_a, conditions_a = await _collect_chart_data(session, job_a_id, model=model_a)
+    scores_b, levels_b, conditions_b = await _collect_chart_data(session, job_b_id, model=model_b)
 
     extractor = await evaluate_extractor_from_db(session)
 
-    missing_a = await get_missing_care_summary(session, job_a_id, min_count=1)
-    missing_b = await get_missing_care_summary(session, job_b_id, min_count=1)
+    missing_a = await get_missing_care_summary(session, job_a_id, min_count=1, model=model_a)
+    missing_b = await get_missing_care_summary(session, job_b_id, min_count=1, model=model_b)
+
+    # ── Per-patient diagnosis details for side-by-side view ──────
+    results_a = await _load_results_with_patients(session, job_a_id, model=model_a)
+    results_b = await _load_results_with_patients(session, job_b_id, model=model_b)
+    patient_detail_html = _build_patient_detail_cards(
+        results_a, results_b, label_a, label_b,
+    )
 
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -1489,7 +1893,7 @@ async def generate_comparison_html(
     for p in comparison.get("patients", []):
         agree_cls = "val-better" if p["agreement"] else "val-worse"
         patient_rows += (
-            f"<tr><td title='{p['pat_id']}'>{p['pat_id'][:12]}...</td>"
+            f"<tr><td style='font-size:0.8rem'>{p['pat_id']}</td>"
             f"<td>{p['score_a']:.0%}</td>"
             f"<td>{p['score_b']:.0%}</td>"
             f"<td>{p['score_diff']:+.0%}</td>"
@@ -1503,7 +1907,7 @@ async def generate_comparison_html(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GuidelineGuard — Model Comparison Report</title>
+<title>ClinAuditAI &mdash; Model Comparison Report &mdash; Agentic AI for Automated Clinical Guideline Adherence Auditing in Musculoskeletal Primary Care</title>
 <style>
     :root {{
         --green: #16a34a; --amber: #d97706; --red: #dc2626;
@@ -1522,6 +1926,7 @@ async def generate_comparison_html(
         border-bottom: 2px solid var(--border); padding-bottom: 0.5rem;
     }}
     .subtitle {{ color: var(--muted); font-size: 0.9rem; margin-bottom: 1.5rem; }}
+    .tagline {{ color: var(--muted); font-size: 0.95rem; font-style: italic; margin-bottom: 0.5rem; }}
     .badge-model {{
         display: inline-block; padding: 0.2rem 0.7rem; border-radius: 12px;
         font-size: 0.8rem; font-weight: 600; margin-right: 0.5rem;
@@ -1566,6 +1971,43 @@ async def generate_comparison_html(
     /* Kappa interpretation */
     .kappa-hint {{ font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; }}
 
+    /* Patient detail cards */
+    .patient-detail {{
+        background: var(--card); border: 1px solid var(--border);
+        border-radius: 8px; margin-bottom: 1rem; overflow: hidden;
+    }}
+    .patient-detail-header {{
+        padding: 0.75rem 1rem; cursor: pointer; display: flex;
+        justify-content: space-between; align-items: center;
+        background: #f8fafc; border-bottom: 1px solid var(--border);
+    }}
+    .patient-detail-header:hover {{ background: #f1f5f9; }}
+    .patient-detail-header h4 {{ font-size: 0.9rem; margin: 0; }}
+    .patient-detail-body {{ display: none; padding: 1rem; }}
+    .patient-detail.open .patient-detail-body {{ display: block; }}
+    .patient-detail .toggle {{ font-size: 0.8rem; color: var(--muted); }}
+    .patient-detail.open .toggle::after {{ content: "▲"; }}
+    .patient-detail:not(.open) .toggle::after {{ content: "▼"; }}
+    .diagnosis-detail {{ margin-bottom: 1.25rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }}
+    .diagnosis-detail:last-child {{ margin-bottom: 0; padding-bottom: 0; border-bottom: none; }}
+    .diagnosis-detail h5 {{ font-size: 0.95rem; margin-bottom: 0.5rem; }}
+    .model-side {{ margin-bottom: 0.75rem; padding: 0.75rem; border-radius: 6px; }}
+    .model-side-a {{ background: #eff6ff; border-left: 3px solid var(--blue); }}
+    .model-side-b {{ background: #fff7ed; border-left: 3px solid var(--orange); }}
+    .model-side .model-label {{ font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem; }}
+    .model-side .explanation {{ font-size: 0.88rem; line-height: 1.5; margin: 0.25rem 0; }}
+    .model-side .cited {{ font-style: italic; font-size: 0.85rem; color: var(--muted); margin: 0.25rem 0; padding: 0.5rem; background: rgba(0,0,0,0.03); border-radius: 4px; }}
+    .model-side .tags {{ font-size: 0.8rem; color: var(--muted); margin-top: 0.25rem; }}
+    .model-side .tags .followed {{ color: var(--green); }}
+    .model-side .tags .not-followed {{ color: var(--red); }}
+    .model-side .tags .missing {{ color: var(--amber); }}
+    .badge {{ display: inline-block; padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.75rem; font-weight: 600; }}
+    .badge-compliant {{ background: #dcfce7; color: var(--green); }}
+    .badge-partial {{ background: #fef9c3; color: #854d0e; }}
+    .badge-neutral {{ background: #f1f5f9; color: var(--muted); }}
+    .badge-bad {{ background: #fee2e2; color: var(--red); }}
+    .badge-risky {{ background: #fecaca; color: #991b1b; }}
+
     .footer {{
         margin-top: 3rem; padding-top: 1rem;
         border-top: 1px solid var(--border);
@@ -1583,7 +2025,8 @@ async def generate_comparison_html(
 </head>
 <body>
 
-<h1>Model Comparison Report</h1>
+<h1>ClinAuditAI &mdash; Model Comparison Report</h1>
+<p class="tagline">Agentic AI for Automated Clinical Guideline Adherence Auditing in Musculoskeletal Primary Care</p>
 <p class="subtitle">
     <span class="badge-model badge-a">{label_a}</span>
     <span class="badge-model badge-b">{label_b}</span>
@@ -1710,7 +2153,7 @@ async def generate_comparison_html(
     </div>
 </div>
 
-<!-- ── Per-Patient Comparison ────────────────────────────────────── -->
+<!-- ── Per-Patient Comparison (Summary) ─────────────────────────── -->
 
 <h2>Per-Patient Comparison</h2>
 <table>
@@ -1721,12 +2164,158 @@ async def generate_comparison_html(
     <tbody>{patient_rows}</tbody>
 </table>
 
+<!-- ── Per-Patient Diagnosis Detail ────────────────────────────── -->
+
+<h2>Per-Diagnosis Detail (Side-by-Side Reasoning)</h2>
+<p style="color:var(--muted);margin-bottom:1rem;">
+    Click a patient card to expand/collapse. Shows the LLM's reasoning, cited guideline,
+    and compliance assessment for each diagnosis from both models.
+</p>
+{patient_detail_html}
+
 <div class="footer">
-    GuidelineGuard &mdash; MSK Clinical Guideline Adherence Audit &mdash; Model Comparison Report
+    ClinAuditAI &mdash; Agentic AI for Automated Clinical Guideline Adherence Auditing in Musculoskeletal Primary Care
 </div>
 
+<script>
+document.querySelectorAll('.patient-detail-header').forEach(function(h) {{
+    h.addEventListener('click', function() {{
+        this.parentElement.classList.toggle('open');
+    }});
+}});
+</script>
 </body>
 </html>"""
+
+
+def _build_patient_detail_cards(
+    results_a: list,
+    results_b: list,
+    label_a: str,
+    label_b: str,
+) -> str:
+    """Build expandable per-patient cards with side-by-side diagnosis reasoning."""
+
+    # Index results by pat_id
+    map_a: dict[str, list[dict]] = {}
+    for r in results_a:
+        pid = r.patient.pat_id if r.patient else None
+        if pid:
+            map_a.setdefault(pid, []).extend(_parse_details(r.details_json))
+
+    map_b: dict[str, list[dict]] = {}
+    for r in results_b:
+        pid = r.patient.pat_id if r.patient else None
+        if pid:
+            map_b.setdefault(pid, []).extend(_parse_details(r.details_json))
+
+    # All patients present in both
+    common_pats = sorted(set(map_a.keys()) & set(map_b.keys()))
+
+    if not common_pats:
+        return '<p style="color:var(--muted);">No overlapping patients found.</p>'
+
+    cards_html = ""
+    for pat_id in common_pats:
+        diags_a = map_a[pat_id]
+        diags_b = map_b[pat_id]
+
+        # Index diagnoses by term
+        by_term_a = {}
+        for d in diags_a:
+            term = d.get("diagnosis", "Unknown")
+            if term not in by_term_a:  # first occurrence only (dedup)
+                by_term_a[term] = d
+        by_term_b = {}
+        for d in diags_b:
+            term = d.get("diagnosis", "Unknown")
+            if term not in by_term_b:
+                by_term_b[term] = d
+
+        all_terms = list(dict.fromkeys(list(by_term_a.keys()) + list(by_term_b.keys())))
+
+        diag_cards = ""
+        for term in all_terms:
+            da = by_term_a.get(term)
+            db = by_term_b.get(term)
+            diag_cards += _build_diagnosis_side_by_side(term, da, db, label_a, label_b)
+
+        n_diags = len(all_terms)
+        cards_html += f"""
+<div class="patient-detail">
+    <div class="patient-detail-header">
+        <h4>{pat_id} <span style="color:var(--muted);font-weight:normal;">({n_diags} diagnoses)</span></h4>
+        <span class="toggle"></span>
+    </div>
+    <div class="patient-detail-body">
+        {diag_cards}
+    </div>
+</div>"""
+
+    return cards_html
+
+
+def _build_diagnosis_side_by_side(
+    term: str,
+    da: dict | None,
+    db: dict | None,
+    label_a: str,
+    label_b: str,
+) -> str:
+    """Build HTML for a single diagnosis comparing both models."""
+
+    def _side(d: dict | None, label: str, css_class: str) -> str:
+        if not d:
+            return f"""
+        <div class="model-side {css_class}">
+            <div class="model-label">{label}</div>
+            <p class="explanation" style="color:var(--muted);">Not evaluated for this diagnosis.</p>
+        </div>"""
+
+        score = d.get("score", "?")
+        judgement = d.get("judgement", "")
+        badge = _score_badge(score, judgement)
+        confidence = d.get("confidence")
+        conf_str = f" (confidence: {confidence:.0%})" if confidence is not None else ""
+        explanation = d.get("explanation", "No explanation provided.")
+        cited = d.get("cited_guideline_text", "")
+        followed = d.get("guidelines_followed", [])
+        not_followed = d.get("guidelines_not_followed", [])
+        missing = d.get("missing_care_opportunities", [])
+
+        cited_html = ""
+        if cited and cited.lower() != "none":
+            cited_html = f'<div class="cited">&ldquo;{cited}&rdquo;</div>'
+
+        tags_parts = []
+        if followed:
+            f_str = ", ".join(followed) if isinstance(followed, list) else followed
+            if f_str.lower() != "none":
+                tags_parts.append(f'<span class="followed">Followed: {f_str}</span>')
+        if not_followed:
+            nf_str = ", ".join(not_followed) if isinstance(not_followed, list) else not_followed
+            if nf_str.lower() != "none":
+                tags_parts.append(f'<span class="not-followed">Not followed: {nf_str}</span>')
+        if missing:
+            m_str = ", ".join(missing) if isinstance(missing, list) else missing
+            if m_str.lower() != "none":
+                tags_parts.append(f'<span class="missing">Missing care: {m_str}</span>')
+        tags_html = " &middot; ".join(tags_parts)
+
+        return f"""
+        <div class="model-side {css_class}">
+            <div class="model-label">{label} {badge}{conf_str}</div>
+            <p class="explanation">{explanation}</p>
+            {cited_html}
+            <div class="tags">{tags_html}</div>
+        </div>"""
+
+    return f"""
+    <div class="diagnosis-detail">
+        <h5>{term}</h5>
+        {_side(da, label_a, "model-side-a")}
+        {_side(db, label_b, "model-side-b")}
+    </div>"""
 
 
 def _kappa_label(kappa: float) -> str:
