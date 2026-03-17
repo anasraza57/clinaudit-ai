@@ -39,7 +39,7 @@ The system is built as a pipeline of four specialised AI agents:
 
 ### Agent 2: Query Generator
 **Job:** Take the extracted clinical concepts and create search queries to find relevant guidelines.
-**Input:** The structured list from the Extractor
+**Input:** The structured list from the Consultation Insight Agent
 **Output:** Search queries like "NICE guidelines for osteoarthritis of hip management" and "steroid injection for hip osteoarthritis evidence"
 **Why needed:** You can't just search for "osteoarthritis" — you need targeted queries that will find the specific guideline sections about treatment, referral criteria, imaging, etc.
 

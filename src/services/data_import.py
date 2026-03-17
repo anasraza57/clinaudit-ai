@@ -86,7 +86,7 @@ async def import_patients(session: AsyncSession, csv_path: str | None = None) ->
                 term=row["Term"].strip(),
                 concept_display=row["ConceptDisplay"].strip(),
                 notes=row.get("Notes", "").strip() or None,
-                category=None,  # Will be set by the Extractor agent later
+                category=None,  # Will be set by the Consultation Insight agent later
             )
             session.add(entry)
             new_entries += 1

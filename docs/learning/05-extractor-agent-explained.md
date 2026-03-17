@@ -1,8 +1,8 @@
-# Extractor Agent Explained
+# Consultation Insight Agent Explained
 
-## What Does the Extractor Do?
+## What Does the Consultation Insight Agent Do?
 
-The Extractor is **Stage 1** of the 4-agent pipeline. Its job is to take a patient's raw clinical records and organise them into something the rest of the pipeline can work with.
+The Consultation Insight Agent is **Stage 1** of the 4-agent pipeline. Its job is to take a patient's raw clinical records and organise them into something the rest of the pipeline can work with.
 
 Think of it as a filing clerk who receives a pile of medical notes and sorts them into labelled folders: "these are diagnoses", "these are treatments", "these are referrals", etc.
 
@@ -76,7 +76,7 @@ The `clinical_entries` table has a `category` column that starts as `NULL`. On t
 2. Query DB for concepts where `category IS NULL` — these need classification
 3. Run rules + batched LLM on the uncategorised concepts
 4. **Write categories back to DB** — UPDATE all matching rows with the new category
-5. Load everything into the in-memory cache for the Extractor to use
+5. Load everything into the in-memory cache for the Consultation Insight Agent to use
 
 On subsequent runs (or after a server crash), step 1 returns everything and steps 2-4 are skipped entirely. This means:
 - **First run:** ~7 LLM batch calls (one-time cost)
@@ -85,11 +85,11 @@ On subsequent runs (or after a server crash), step 1 returns everything and step
 
 ### Step 2: Grouping by Episode
 
-A patient may have visited the GP for different MSK problems at different times. Each visit date (called the "index date") represents a separate **episode**. The Extractor groups entries by index date.
+A patient may have visited the GP for different MSK problems at different times. Each visit date (called the "index date") represents a separate **episode**. The Consultation Insight Agent groups entries by index date.
 
 ### Step 3: Structured Output
 
-The Extractor produces an `ExtractionResult` containing:
+The Consultation Insight Agent produces an `ExtractionResult` containing:
 
 ```
 Patient: pat-001
@@ -107,7 +107,7 @@ Patient: pat-001
 
 ## What Happens Next?
 
-The diagnoses from the Extractor's output are passed to the **Query Agent** (Stage 2), which generates search queries to find relevant NICE guidelines for each diagnosis. The treatments and referrals are later compared against those guidelines by the **Scorer Agent** (Stage 4).
+The diagnoses from the Consultation Insight Agent's output are passed to the **Audit Query Generator** (Stage 2), which generates search queries to find relevant NICE guidelines for each diagnosis. The treatments and referrals are later compared against those guidelines by the **Compliance Auditor Agent** (Stage 4).
 
 ## Deep Dive: How the Rule-Based Patterns Work
 

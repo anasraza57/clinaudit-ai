@@ -1,5 +1,5 @@
 """
-Tests for the Query Agent.
+Tests for the Audit Query Generator.
 
 Verifies that the agent correctly generates search queries from
 extracted diagnoses using templates, LLM, and default fallbacks.
@@ -223,7 +223,7 @@ class TestDefaultQueries:
 
 
 class TestAuditQueryGeneratorNoLLM:
-    """Test the Query Agent without an LLM provider."""
+    """Test the Audit Query Generator without an LLM provider."""
 
     @pytest.mark.asyncio
     async def test_generates_queries_for_template_diagnosis(
@@ -320,7 +320,7 @@ class TestAuditQueryGeneratorNoLLM:
 
 
 class TestAuditQueryGeneratorWithLLM:
-    """Test the Query Agent with a mock LLM provider."""
+    """Test the Audit Query Generator with a mock LLM provider."""
 
     @pytest.mark.asyncio
     async def test_template_preferred_over_llm(self, single_episode_extraction):

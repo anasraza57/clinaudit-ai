@@ -1,14 +1,14 @@
-# Retriever Agent Explained
+# Guideline Evidence Finder Explained
 
-## What Does the Retriever Agent Do?
+## What Does the Guideline Evidence Finder Do?
 
-The Retriever Agent is **Stage 3** of the 4-agent pipeline. It takes the search queries from the Query Agent, converts them into numerical vectors using PubMedBERT, and searches the FAISS guideline index to find the most relevant NICE guideline passages for each diagnosis.
+The Guideline Evidence Finder is **Stage 3** of the 4-agent pipeline. It takes the search queries from the Audit Query Generator, converts them into numerical vectors using PubMedBERT, and searches the FAISS guideline index to find the most relevant NICE guideline passages for each diagnosis.
 
 Think of it as a research assistant who takes a set of search terms, goes into a massive digital library, and returns the most relevant documents for each topic.
 
 ## The Two Components
 
-The Retriever Agent is actually built from two services working together:
+The Guideline Evidence Finder is actually built from two services working together:
 
 ### 1. The Embedder (`src/services/embedder.py`)
 
@@ -43,7 +43,7 @@ This was built in Phase 1. It loads the pre-built FAISS index (1,656 guideline v
 ### How They Work Together
 
 ```
-Query Agent produces:  "NICE guidelines for low back pain management"
+Audit Query Generator produces:  "NICE guidelines for low back pain management"
                           ↓
 Embedder encodes it:   [0.023, -0.157, 0.089, ..., 0.041]  (768 floats)
                           ↓
@@ -56,38 +56,38 @@ Returns top-5:         [
                        ]
 ```
 
-## What the Retriever Agent Adds
+## What the Guideline Evidence Finder Adds
 
-The Embedder and VectorStore are low-level services. The Retriever Agent (`src/agents/retriever.py`) adds the **intelligence layer** on top:
+The Embedder and VectorStore are low-level services. The Guideline Evidence Finder (`src/agents/retriever.py`) adds the **intelligence layer** on top:
 
 ### 1. Batch Encoding
 
-Each diagnosis has 1-3 queries. Instead of encoding them one at a time (separate forward passes through PubMedBERT), the Retriever uses `encode_batch()` to encode all queries for a diagnosis in a **single forward pass**. This is faster and uses less memory — the model weights are loaded into the CPU cache once instead of per-query.
+Each diagnosis has 1-3 queries. Instead of encoding them one at a time (separate forward passes through PubMedBERT), the Guideline Evidence Finder uses `encode_batch()` to encode all queries for a diagnosis in a **single forward pass**. This is faster and uses less memory — the model weights are loaded into the CPU cache once instead of per-query.
 
 ### 2. Multi-Query Aggregation
 
-After batch encoding, the Retriever searches FAISS for each query embedding separately, then **merges the results**. This means if Query 1 and Query 3 both find the same guideline, we keep it once (with the better score).
+After batch encoding, the Guideline Evidence Finder searches FAISS for each query embedding separately, then **merges the results**. This means if Query 1 and Query 3 both find the same guideline, we keep it once (with the better score).
 
 ### 3. Deduplication
 
-Without deduplication, we might send the Scorer Agent 3 copies of the same guideline (found by 3 different queries). The Retriever keeps only unique guidelines, tracked by their `id` field.
+Without deduplication, we might send the Compliance Auditor Agent 3 copies of the same guideline (found by 3 different queries). The Guideline Evidence Finder keeps only unique guidelines, tracked by their `id` field.
 
 ### 4. Best-Score Selection
 
-When the same guideline is found by multiple queries, we keep the one with the **best similarity score** (lowest L2 distance). This ensures the Scorer gets the most confident matches.
+When the same guideline is found by multiple queries, we keep the one with the **best similarity score** (lowest L2 distance). This ensures the Compliance Auditor Agent gets the most confident matches.
 
 ### 5. Top-K Limiting
 
-After merging and deduplicating across all queries for a diagnosis, we keep only the top-K results (default: 5, configurable via `RETRIEVER_TOP_K`). This prevents information overload for the Scorer.
+After merging and deduplicating across all queries for a diagnosis, we keep only the top-K results (default: 5, configurable via `RETRIEVER_TOP_K`). This prevents information overload for the Compliance Auditor Agent.
 
 ### 6. Structured Output
 
-The Retriever produces a `RetrievalResult` with `DiagnosisGuidelines` for each diagnosis, containing `GuidelineMatch` objects with title, text, URL, score, rank, and which query found it.
+The Guideline Evidence Finder produces a `RetrievalResult` with `DiagnosisGuidelines` for each diagnosis, containing `GuidelineMatch` objects with title, text, URL, score, rank, and which query found it.
 
 ## Data Flow
 
 ```
-QueryResult (from Query Agent)
+QueryResult (from Audit Query Generator)
 │
 ├── Diagnosis: "Low back pain" (3 queries)
 │   ├── Batch encode all 3 queries → 3 embeddings (single forward pass)
@@ -113,7 +113,7 @@ QueryResult (from Query Agent)
 
 ## What Happens Next?
 
-The `RetrievalResult` is passed to the **Scorer Agent** (Stage 4), which:
+The `RetrievalResult` is passed to the **Compliance Auditor Agent** (Stage 4), which:
 1. Takes each diagnosis + its matched guideline texts
 2. Also receives the patient's treatments, referrals, and investigations
 3. Asks the LLM to evaluate whether the documented care matches the guidelines
@@ -162,7 +162,7 @@ def retriever_node(state):
 
 4. **Global state** — the model, tokenizer, and FAISS index are all global variables in the notebook. No loading/unloading, no error handling.
 
-5. **Searches for everything** — he searches for diagnoses, treatments, AND procedures. But the Scorer only evaluates per-diagnosis, so searching for "steroid injection guidelines" doesn't help — we need guidelines for the *condition*, not the treatment.
+5. **Searches for everything** — he searches for diagnoses, treatments, AND procedures. But the Compliance Auditor Agent only evaluates per-diagnosis, so searching for "steroid injection guidelines" doesn't help — we need guidelines for the *condition*, not the treatment.
 
 6. **Hardcoded top-K** — always returns exactly 5 results with no configuration.
 
@@ -172,10 +172,10 @@ def retriever_node(state):
 
 | Aspect | Cyprian | Ours |
 |---|---|---|
-| **Query quality** | "guidelines for low_back_pain" | Expert-crafted templates + LLM queries from Query Agent |
+| **Query quality** | "guidelines for low_back_pain" | Expert-crafted templates + LLM queries from Audit Query Generator |
 | **Architecture** | One function in a notebook | Separate Embedder service + VectorStore + RetrieverAgent |
 | **Deduplication** | None — same guideline appears multiple times | Deduped by guideline ID, best score kept |
-| **What gets searched** | Diagnoses + treatments + procedures (noisy) | Only diagnoses (what the Scorer actually evaluates) |
+| **What gets searched** | Diagnoses + treatments + procedures (noisy) | Only diagnoses (what the Compliance Auditor Agent actually evaluates) |
 | **Model management** | Global variables, never unloaded | Singleton with load/unload, proper memory management |
 | **Error handling** | None | RuntimeError if not loaded, logging throughout |
 | **Configuration** | Hardcoded k=5 | Configurable via `RETRIEVER_TOP_K` setting |
@@ -269,7 +269,7 @@ A two-layer post-retrieval filter in `_filter_irrelevant()`, applied **after** F
 ### Data Flow (Updated)
 
 ```
-Query Agent produces:  "NICE guidelines for carpal tunnel syndrome management"
+Audit Query Generator produces:  "NICE guidelines for carpal tunnel syndrome management"
                           ↓
 Embedder encodes it:   [0.023, -0.157, 0.089, ..., 0.041]  (768 floats)
                           ↓

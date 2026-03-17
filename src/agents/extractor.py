@@ -64,7 +64,7 @@ class PatientEpisode:
 
 @dataclass
 class ExtractionResult:
-    """The output of the Extractor Agent for one patient."""
+    """The output of the Consultation Insight Agent for one patient."""
 
     pat_id: str
     episodes: list[PatientEpisode] = field(default_factory=list)

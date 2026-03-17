@@ -127,7 +127,7 @@ class DiagnosisGuidelines:
 
 @dataclass
 class RetrievalResult:
-    """The output of the Retriever Agent for one patient."""
+    """The output of the Guideline Evidence Finder for one patient."""
 
     pat_id: str
     diagnosis_guidelines: list[DiagnosisGuidelines] = field(default_factory=list)
@@ -184,7 +184,7 @@ class GuidelineEvidenceFinder:
         4. Keep top-K unique guidelines, ranked by best score
 
         Args:
-            query_result: The QueryResult from the Query Agent.
+            query_result: The QueryResult from the Audit Query Generator.
 
         Returns:
             RetrievalResult with matched guidelines per diagnosis.

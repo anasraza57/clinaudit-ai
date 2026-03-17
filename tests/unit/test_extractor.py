@@ -1,5 +1,5 @@
 """
-Tests for the Extractor Agent.
+Tests for the Consultation Insight Agent.
 
 Verifies that the agent correctly groups entries by index date,
 applies categories, and produces structured extraction results.

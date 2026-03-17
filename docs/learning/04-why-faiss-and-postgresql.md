@@ -24,7 +24,7 @@ PostgreSQL and FAISS solve **different problems**. PostgreSQL handles structured
 
 ## Why SQL Can't Replace FAISS
 
-Imagine the Query Agent generates: *"NICE guidelines for knee osteoarthritis treatment"*
+Imagine the Audit Query Generator generates: *"NICE guidelines for knee osteoarthritis treatment"*
 
 With SQL, you'd have to do something like:
 ```sql
@@ -58,7 +58,7 @@ Guidelines exist in **both** systems because each uses them differently:
 ## How They Work Together in the Pipeline
 
 ```
-Step 1 — Query Agent
+Step 1 — Audit Query Generator
    Input:  Patient diagnosed with "Osteoarthritis of knee"
    Output: Search query → "NICE guidelines for knee osteoarthritis treatment"
 
@@ -71,7 +71,7 @@ Step 3 — PostgreSQL Retrieval
    SELECT * FROM guidelines WHERE id IN (42, 107, 890, 1201, 455)
    Returns the full text, title, and URL for each matched guideline.
 
-Step 4 — Scorer Agent
+Step 4 — Compliance Auditor Agent
    Receives the patient's treatments + the 5 guideline passages.
    Uses an LLM to evaluate: "Did the GP follow these guidelines?"
    Produces a score (0.0 to 1.0) with explanations.

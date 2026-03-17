@@ -1,14 +1,14 @@
-# Query Agent Explained
+# Audit Query Generator Explained
 
-## What Does the Query Agent Do?
+## What Does the Audit Query Generator Do?
 
-The Query Agent is **Stage 2** of the 4-agent pipeline. Its job is to take the diagnoses identified by the Extractor and generate targeted search queries that will be used to find relevant NICE guidelines.
+The Audit Query Generator is **Stage 2** of the 4-agent pipeline. Its job is to take the diagnoses identified by the Consultation Insight Agent and generate targeted search queries that will be used to find relevant NICE guidelines.
 
 Think of it as a librarian who reads a doctor's notes and writes search cards: "I need to find the guidelines about low back pain management", "I need the referral criteria for knee osteoarthritis", etc.
 
 ## Why Do We Need It?
 
-The Extractor gives us diagnoses like "Low back pain" or "Osteoarthritis of knee". But we can't just throw those raw terms into our guideline search — we need **optimised search queries** that will find the right guideline passages.
+The Consultation Insight Agent gives us diagnoses like "Low back pain" or "Osteoarthritis of knee". But we can't just throw those raw terms into our guideline search — we need **optimised search queries** that will find the right guideline passages.
 
 Here's why:
 
@@ -27,11 +27,11 @@ The problem: the search quality depends entirely on what we search for. Consider
 | "NICE guidelines for assessment and management of low back pain and sciatica" | Matches the actual NICE guideline title — precise |
 | "low back pain referral criteria and imaging recommendations" | Matches specific guideline sections about when to refer or image |
 
-The more our query text matches how NICE guidelines are actually written, the better the search results. That's what the Query Agent optimises for.
+The more our query text matches how NICE guidelines are actually written, the better the search results. That's what the Audit Query Generator optimises for.
 
 ### Real Example
 
-For a patient diagnosed with "Low back pain", the Query Agent generates:
+For a patient diagnosed with "Low back pain", the Audit Query Generator generates:
 
 ```
 Query 1: "NICE guidelines for assessment and management of low back pain and sciatica"
@@ -44,13 +44,13 @@ Each query targets a different aspect of care:
 - **Query 2** finds treatment-specific sections
 - **Query 3** finds referral and imaging criteria
 
-Together, they give the Retriever Agent a comprehensive set of guideline passages to work with.
+Together, they give the Guideline Evidence Finder a comprehensive set of guideline passages to work with.
 
 ## How It Works
 
 ### The Three-Tier Approach
 
-Just like the Extractor uses rules first and LLM second, the Query Agent has three tiers:
+Just like the Consultation Insight Agent uses rules first and LLM second, the Audit Query Generator has three tiers:
 
 ```
 Diagnosis → [1. Template Match?] → YES → Use pre-written queries
@@ -105,7 +105,7 @@ These aren't as optimised as the other tiers, but they're reasonable and always 
 ## Data Flow
 
 ```
-ExtractionResult (from Extractor)
+ExtractionResult (from Consultation Insight Agent)
 │
 ├── Episode 1 (2024-01-15)
 │   ├── Diagnosis: "Low back pain"        → Template queries (3)
@@ -127,15 +127,15 @@ ExtractionResult (from Extractor)
 
 ## What Happens Next?
 
-The `QueryResult` is passed to the **Retriever Agent** (Stage 3), which:
+The `QueryResult` is passed to the **Guideline Evidence Finder** (Stage 3), which:
 1. Takes each query text
 2. Encodes it using PubMedBERT into a 768-dimensional vector
 3. Searches the FAISS index for the top-5 most similar guideline passages
-4. Returns the matched guideline texts for the Scorer Agent to evaluate
+4. Returns the matched guideline texts for the Compliance Auditor Agent to evaluate
 
 ## Hiruni's Previous Approach (In Detail)
 
-### How Her Query Agent Worked
+### How Her Audit Query Generator Worked
 
 Hiruni's approach was simple: **send everything to a local LLM**. Every single diagnosis — no matter how common or straightforward — went through the same path.
 
@@ -315,7 +315,7 @@ Without Tier 3, the pipeline would crash — exactly what happened with Hiruni's
 3. "{diagnosis} referral criteria and investigations"
 ```
 
-These aren't as optimised as templates or LLM queries, but they're functional. The Retriever will still find *something* relevant, and the Scorer can still evaluate *something* — even if the retrieval quality is slightly lower.
+These aren't as optimised as templates or LLM queries, but they're functional. The Guideline Evidence Finder will still find *something* relevant, and the Compliance Auditor Agent can still evaluate *something* — even if the retrieval quality is slightly lower.
 
 **The engineering principle:** A system that produces a slightly imperfect result is infinitely more useful than a system that crashes.
 
@@ -365,7 +365,7 @@ This is a general software engineering principle called **graceful degradation**
 
 ## Configuration
 
-The Query Agent reads one setting from the environment:
+The Audit Query Generator reads one setting from the environment:
 
 | Setting | Default | Description |
 |---|---|---|

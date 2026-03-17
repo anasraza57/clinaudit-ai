@@ -198,7 +198,7 @@ class DiagnosisQueries:
 
 @dataclass
 class QueryResult:
-    """The output of the Query Agent for one patient."""
+    """The output of the Audit Query Generator for one patient."""
 
     pat_id: str
     diagnosis_queries: list[DiagnosisQueries] = field(default_factory=list)
@@ -252,11 +252,11 @@ class AuditQueryGenerator:
         """
         Generate search queries for all diagnoses in the extraction.
 
-        For each diagnosis found by the Extractor, generates 1-3 targeted
+        For each diagnosis found by the Consultation Insight Agent, generates 1-3 targeted
         queries optimised for FAISS similarity search against NICE guidelines.
 
         Args:
-            extraction: The ExtractionResult from the Extractor Agent.
+            extraction: The ExtractionResult from the Consultation Insight Agent.
 
         Returns:
             QueryResult with queries for each diagnosis.

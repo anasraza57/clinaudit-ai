@@ -65,8 +65,8 @@ A system that can:
 ### Origin
 
 This project builds upon the **ClinAuditAI** framework (Shahriyear, 2024) and two MSc dissertations from Keele University:
-- **Hiruni Vidanapathirana** — built the Extractor + Query agents
-- **Cyprian Toroitich** — built the Retriever + Scorer agents
+- **Hiruni Vidanapathirana** — built the Consultation Insight Agent + Audit Query Generator
+- **Cyprian Toroitich** — built the Guideline Evidence Finder + Compliance Auditor Agent
 
 We are **not copying** their work. We are analysing it, taking what's good, fixing what's bad, and rebuilding the entire system as a unified, production-grade pipeline.
 
@@ -93,7 +93,7 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 - No error handling or production considerations discussed
 
 **What we're taking:**
-- The 4-agent architecture (Extractor → Query → Retriever → Scorer)
+- The 4-agent architecture (Consultation Insight Agent → Audit Query Generator → Guideline Evidence Finder → Compliance Auditor Agent)
 - The RAG approach for grounding scores in real guidelines
 - PubMedBERT for medical embeddings
 - FAISS for vector search
@@ -108,7 +108,7 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 
 ---
 
-### 2B. Hiruni's Implementation (Extractor + Query Agent)
+### 2B. Hiruni's Implementation (Consultation Insight Agent + Audit Query Generator)
 
 **Files:** `Hiruni/extractor.py`, `Hiruni/query_agent.py`, `Hiruni/pipeline.py`, `Hiruni/snomed/`
 
@@ -117,7 +117,7 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 - `HadesFHIRClient` that queries a local FHIR server to get semantic tags (disorder, procedure, finding, etc.)
 - `ClinicalNote` and `ClinicalEntry` data models
 - `QueryAgent` class that uses a local Mistral-7B (via llama_cpp) to generate guideline search queries
-- LangGraph pipeline wiring Extractor → Query Agent
+- LangGraph pipeline wiring Consultation Insight Agent → Audit Query Generator
 - Data loading and cleaning utilities (`build_note`, `safe_str`)
 
 **What she did well:**
@@ -151,17 +151,17 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 
 ---
 
-### 2C. Cyprian's Implementation (Retriever + Scorer Agent)
+### 2C. Cyprian's Implementation (Guideline Evidence Finder + Compliance Auditor Agent)
 
 **Files:** `Cyprian/scorer_deployed.ipynb`, `Cyprian/guidelines.csv`, `Cyprian/guidelines.index`
 
 **What he built:**
 - FAISS vector index over 1,656 NICE guideline documents
 - PubMedBERT Matryoshka embeddings for encoding guidelines and queries
-- Retriever Agent that searches the FAISS index and returns top-5 guideline chunks
-- Scorer Agent that uses GPT-3.5-turbo to evaluate adherence per diagnosis
+- Guideline Evidence Finder that searches the FAISS index and returns top-5 guideline chunks
+- Compliance Auditor Agent that uses GPT-3.5-turbo to evaluate adherence per diagnosis
 - Flask JSON-RPC servers for inter-agent communication (ports 5000/5001)
-- LangGraph workflow wiring Retriever → Scorer
+- LangGraph workflow wiring Guideline Evidence Finder → Compliance Auditor Agent
 - 5 test cases with expected scores
 
 **What he did well:**
@@ -202,7 +202,7 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 - Only treatments in scorer → full clinical context (treatments + referrals + investigations + procedures)
 - Case-sensitive regex bug → case-insensitive parsing with robust edge case handling
 - Manual test cases → automated test suite (32 scorer tests)
-- Naive "guidelines for concept_name" queries → expert-crafted templates + LLM queries from Query Agent
+- Naive "guidelines for concept_name" queries → expert-crafted templates + LLM queries from Audit Query Generator
 - No deduplication → merge + dedup results across multiple queries per diagnosis
 - `faiss.normalize_L2` on non-writable tensors → numpy normalization (fixed segfault bug)
 
@@ -238,10 +238,10 @@ We are **not copying** their work. We are analysing it, taking what's good, fixi
 │                        ClinAuditAI                            │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  ┌──────────┐    ┌──────────┐    ┌───────────┐    ┌──────────┐ │
-│  │Extractor │───>│  Query   │───>│ Retriever │───>│  Scorer  │ │
-│  │  Agent   │    │  Agent   │    │   Agent   │    │  Agent   │ │
-│  └──────────┘    └──────────┘    └───────────┘    └──────────┘ │
+│  ┌─────────────┐  ┌───────────┐  ┌─────────────┐  ┌────────────┐ │
+│  │Consultation │─>│Audit Query│─>│  Guideline  │─>│ Compliance │ │
+│  │Insight Agent│  │ Generator │  │Evidence Find│  │Auditor Agnt│ │
+│  └─────────────┘  └───────────┘  └─────────────┘  └────────────┘ │
 │       │                               │                │       │
 │       v                               v                v       │
 │  ┌──────────┐                   ┌───────────┐    ┌──────────┐  │
@@ -319,42 +319,42 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - [x] Update PROJECT_BIBLE.md
 - **Note:** Actual data import (running against live DB) deferred to when Docker is started
 
-### Phase 2: Extractor Agent ✅ COMPLETE
+### Phase 2: Consultation Insight Agent ✅ COMPLETE
 - [x] Design SNOMED concept categorisation — two-tier: rule-based (84%) + LLM fallback (16%)
 - [x] Build SNOMED Categoriser service — `src/services/snomed_categoriser.py`
-- [x] Build Extractor Agent — `src/agents/extractor.py`
+- [x] Build Consultation Insight Agent — `src/agents/extractor.py`
 - [x] Categorise entries into: diagnosis, treatment, procedure, referral, investigation, administrative, other
 - [x] Output structured ExtractionResult with episodes grouped by index_date
 - [x] Write tests — 82/82 passing (categoriser: 40 parametrised + 3, extractor: 9)
 - [x] Update learning docs — `05-extractor-agent-explained.md`
 - [x] Update PROJECT_BIBLE.md
 
-### Phase 3: Query Agent ✅ COMPLETE
+### Phase 3: Audit Query Generator ✅ COMPLETE
 - [x] Design query generation — three-tier: template queries for common MSK diagnoses, LLM for unusual diagnoses, default fallback
-- [x] Build Query Agent — `src/agents/query.py` with template matching + LLM generation + defaults
+- [x] Build Audit Query Generator — `src/agents/query.py` with template matching + LLM generation + defaults
 - [x] Hand-craft query templates for ~15 common MSK conditions optimised for PubMedBERT/FAISS retrieval
 - [x] Generate 1-3 targeted search queries per diagnosis
-- [x] Write tests — 117/117 passing (35 new Query Agent tests)
+- [x] Write tests — 117/117 passing (35 new Audit Query Generator tests)
 - [x] Update learning docs — `06-query-agent-explained.md`
 - [x] Update PROJECT_BIBLE.md
 
-### Phase 4: Retriever Agent ✅ COMPLETE
+### Phase 4: Guideline Evidence Finder ✅ COMPLETE
 - [x] Build PubMedBERT embedding service — `src/services/embedder.py` (singleton, load/encode/unload)
-- [x] Build Retriever Agent — `src/agents/retriever.py` (embed queries, search FAISS, merge, dedup, rank)
+- [x] Build Guideline Evidence Finder — `src/agents/retriever.py` (embed queries, search FAISS, merge, dedup, rank)
 - [x] Multi-query aggregation with deduplication (same guideline from multiple queries kept once with best score)
 - [x] Fix faiss.normalize_L2 segfault — replaced with numpy normalization
 - [x] Write tests — 144/144 passing (13 embedder + 14 retriever, using tiny BERT model for speed)
 - [x] Update learning docs — `07-retriever-agent-explained.md`
 - [x] Update PROJECT_BIBLE.md
 
-### Phase 5: Scorer Agent ✅ COMPLETE
+### Phase 5: Compliance Auditor Agent ✅ COMPLETE
 - [x] Design scoring prompt and rubric — structured prompt with diagnosis, treatments, referrals, investigations, procedures, guidelines
-- [x] Build Scorer Agent — `src/agents/scorer.py` using LLM abstraction, temperature=0 for deterministic scoring
+- [x] Build Compliance Auditor Agent — `src/agents/scorer.py` using LLM abstraction, temperature=0 for deterministic scoring
 - [x] Implement per-diagnosis scoring — +1 (adherent) / -1 (non-adherent) with explanations, guidelines followed/not followed
 - [x] Implement aggregate score calculation — proportion of adherent diagnoses (errors excluded)
 - [x] Implement response parsing — case-insensitive regex with robust edge case handling
 - [x] Implement guideline formatting — intelligent truncation with rank ordering, configurable max chars
-- [x] Write tests — 176/176 passing (32 new Scorer tests)
+- [x] Write tests — 176/176 passing (32 new Compliance Auditor Agent tests)
 - [x] Update learning docs — `08-scorer-agent-explained.md`
 - [x] Update PROJECT_BIBLE.md
 
@@ -401,7 +401,7 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - ✅ Improved Swagger docs — response_model, summary, Field descriptions on all endpoints (2026-03-02)
 - ✅ Added `GET /api/v1/data/stats`, `?limit=N` for batch, `GET /audit/jobs/{job_id}/results` pagination (2026-03-02)
 - ✅ Learning docs updated: `05-extractor-agent-explained.md`, `09-pipeline-integration-explained.md` (2026-03-02)
-- ✅ Diagnosis deduplication across pipeline — two layers: (1) **entry-level dedup** skips duplicate (term, index_date) pairs so each diagnosis appears exactly once per episode in pipeline output, eliminating duplicate entries in reports; (2) **term-level caching** reuses queries/embeddings/FAISS results across episodes for the same diagnosis term, avoiding redundant LLM/encoding work. All three agents (Query, Retriever, Scorer) implement both layers. 221 tests passing (+5 dedup tests) (2026-03-02)
+- ✅ Diagnosis deduplication across pipeline — two layers: (1) **entry-level dedup** skips duplicate (term, index_date) pairs so each diagnosis appears exactly once per episode in pipeline output, eliminating duplicate entries in reports; (2) **term-level caching** reuses queries/embeddings/FAISS results across episodes for the same diagnosis term, avoiding redundant LLM/encoding work. All three agents (Audit Query Generator, Guideline Evidence Finder, Compliance Auditor Agent) implement both layers. 221 tests passing (+5 dedup tests) (2026-03-02)
 
 - ✅ Fixed scoring prompt for sparse SNOMED data — prompt was too strict for coded records where many GP actions (verbal advice, prescriptions from separate systems) aren't captured. Referrals to physio/specialist now correctly score +1. Added context about coded data limitations. (2026-03-03)
 - ✅ Fixed score regex parser for bracket format — LLM outputs `Score: [+1]` copying the bracket format from the prompt template. Regex `Score:\s*([+-]?1)` failed to match `[+1]`, defaulting ALL scores to -1. Fixed regex to `Score:\s*\[?([+-]?1)\]?` and removed brackets from prompt template. Added example output to prompt. 222 tests passing (+1 bracket parsing test). (2026-03-03)
@@ -485,31 +485,31 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - ✅ Learning doc — `docs/learning/03-data-layer-explained.md` (2026-03-01)
 - ✅ Fixed torch version in requirements.txt (2.5.1 → 2.2.2 for Python 3.11 compat) (2026-03-01)
 
-### Phase 2: Extractor Agent ✅ COMPLETE
+### Phase 2: Consultation Insight Agent ✅ COMPLETE
 - ✅ SNOMED Categoriser — rule-based keyword matching (84% coverage of 1,261 unique concepts) + LLM fallback (2026-03-01)
-- ✅ Extractor Agent — groups entries by index_date, categorises each, outputs structured ExtractionResult (2026-03-01)
+- ✅ Consultation Insight Agent — groups entries by index_date, categorises each, outputs structured ExtractionResult (2026-03-01)
 - ✅ Categories: diagnosis (463), referral (194), administrative (170), investigation (91), treatment (66), procedure (38) + 192 for LLM (2026-03-01)
 - ✅ Tests — 82/82 passing (2026-03-01)
 - ✅ Learning doc — `docs/learning/05-extractor-agent-explained.md` (2026-03-01)
 
-### Phase 3: Query Agent ✅ COMPLETE
-- ✅ Query Agent — three-tier query generation: templates for common MSK, LLM for rare, defaults as fallback (2026-03-01)
+### Phase 3: Audit Query Generator ✅ COMPLETE
+- ✅ Audit Query Generator — three-tier query generation: templates for common MSK, LLM for rare, defaults as fallback (2026-03-01)
 - ✅ Template queries — hand-crafted for ~15 common MSK conditions (low back pain, osteoarthritis, carpal tunnel, gout, etc.) (2026-03-01)
 - ✅ LLM generation — prompt includes episode context (treatments, referrals, investigations) for targeted queries (2026-03-01)
 - ✅ Data classes — DiagnosisQueries, QueryResult with summary() and all_queries() helpers (2026-03-01)
 - ✅ Tests — 117/117 passing (35 new: template matching, default queries, agent with/without LLM, mock LLM, dataclasses) (2026-03-01)
 - ✅ Learning doc — `docs/learning/06-query-agent-explained.md` (2026-03-01)
 
-### Phase 4: Retriever Agent ✅ COMPLETE
+### Phase 4: Guideline Evidence Finder ✅ COMPLETE
 - ✅ PubMedBERT Embedder service — loads model, encodes text to 768-dim vectors with mean pooling + L2 norm (2026-03-01)
-- ✅ Retriever Agent — embeds queries, searches FAISS, merges/deduplicates across multiple queries per diagnosis (2026-03-01)
+- ✅ Guideline Evidence Finder — embeds queries, searches FAISS, merges/deduplicates across multiple queries per diagnosis (2026-03-01)
 - ✅ Fixed faiss.normalize_L2 segfault — replaced with numpy normalization (torch tensors are non-writable) (2026-03-01)
 - ✅ Data classes — GuidelineMatch, DiagnosisGuidelines (with guideline_texts/titles helpers), RetrievalResult (2026-03-01)
 - ✅ Tests — 144/144 passing (13 embedder using bert-tiny for speed + 14 retriever with mocked embedder/store) (2026-03-01)
 - ✅ Learning doc — `docs/learning/07-retriever-agent-explained.md` (2026-03-01)
 
-### Phase 5: Scorer Agent ✅ COMPLETE
-- ✅ Scorer Agent — `src/agents/scorer.py` with structured scoring prompt, per-diagnosis evaluation, aggregate calculation (2026-03-01)
+### Phase 5: Compliance Auditor Agent ✅ COMPLETE
+- ✅ Compliance Auditor Agent — `src/agents/scorer.py` with structured scoring prompt, per-diagnosis evaluation, aggregate calculation (2026-03-01)
 - ✅ Scoring prompt — includes diagnosis, treatments, referrals, investigations, procedures, and full guideline text (2,000 chars vs Cyprian's 500) (2026-03-01)
 - ✅ Response parsing — case-insensitive regex extracting score, explanation, guidelines followed, guidelines not followed (2026-03-01)
 - ✅ Guideline formatting — intelligent truncation with rank ordering, configurable max chars (2026-03-01)
@@ -604,10 +604,10 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 
 **LLM-as-Judge Evaluation (Phase 9d) ✅ COMPLETE:**
 - ✅ `src/services/evaluation.py` — full evaluation service with per-agent evaluation functions (2026-03-11)
-- ✅ Extractor evaluation: weak supervision using SNOMED rules as pseudo-ground-truth — per-category P/R/F1, rule_match_rate (no LLM needed) (2026-03-11)
-- ✅ Query evaluation: LLM-as-Judge rates query relevance (1-5) and coverage (1-5) per diagnosis (2026-03-11)
-- ✅ Retriever evaluation: LLM-as-Judge rates retrieved guideline relevance (1-5) per diagnosis (2026-03-11)
-- ✅ Scorer evaluation: LLM-as-Judge rates reasoning quality, citation accuracy, score calibration (all 1-5) (2026-03-11)
+- ✅ Consultation Insight Agent evaluation: weak supervision using SNOMED rules as pseudo-ground-truth — per-category P/R/F1, rule_match_rate (no LLM needed) (2026-03-11)
+- ✅ Audit Query Generator evaluation: LLM-as-Judge rates query relevance (1-5) and coverage (1-5) per diagnosis (2026-03-11)
+- ✅ Guideline Evidence Finder evaluation: LLM-as-Judge rates retrieved guideline relevance (1-5) per diagnosis (2026-03-11)
+- ✅ Compliance Auditor Agent evaluation: LLM-as-Judge rates reasoning quality, citation accuracy, score calibration (all 1-5) (2026-03-11)
 - ✅ `evaluate_patient()` orchestrator — evaluates all (or selected) agents for a single patient's pipeline result (2026-03-11)
 - ✅ `aggregate_evaluations()` — aggregates per-patient metrics across multiple patients (2026-03-11)
 - ✅ `scoring_from_stored()` — reconstructs `ScoringResult` from stored `details_json` for evaluation without re-running pipeline (2026-03-11)
@@ -1016,17 +1016,17 @@ Instead, we'll build a `Pipeline` class that chains agent functions together wit
 - `GET /api/v1/evaluation/compare?job_a=1&job_b=2` endpoint — ready for OpenAI vs Ollama comparison once both models have run
 
 *Missing Care Opportunities (9b):*
-- Scorer now outputs "Missing Care Opportunities" — specific NICE-recommended actions not documented in the patient record
+- Compliance Auditor Agent now outputs "Missing Care Opportunities" — specific NICE-recommended actions not documented in the patient record
 - New `missing_care_opportunities` field in `DiagnosisScore`, parsed from LLM response, included in all outputs (JSON, CSV, HTML)
 - `GET /api/v1/evaluation/missing-care` endpoint groups gaps by condition with frequency counts
 - HTML report shows amber "Missing care" tags on diagnosis cards when gaps are identified
 
 *LLM-as-Judge Evaluation (9d):*
 - Evaluation service (`src/services/evaluation.py`) evaluates each pipeline agent's output quality
-- Extractor: weak supervision via SNOMED rules as pseudo-ground-truth → per-category P/R/F1 + rule_match_rate (no LLM cost)
-- Query generator: LLM-as-Judge rates relevance (1-5) and coverage (1-5) per diagnosis
-- Retriever: LLM-as-Judge rates guideline relevance (1-5) per diagnosis
-- Scorer: LLM-as-Judge rates reasoning quality, citation accuracy, score calibration (all 1-5)
+- Consultation Insight Agent: weak supervision via SNOMED rules as pseudo-ground-truth → per-category P/R/F1 + rule_match_rate (no LLM cost)
+- Audit Query Generator: LLM-as-Judge rates relevance (1-5) and coverage (1-5) per diagnosis
+- Guideline Evidence Finder: LLM-as-Judge rates guideline relevance (1-5) per diagnosis
+- Compliance Auditor Agent: LLM-as-Judge rates reasoning quality, citation accuracy, score calibration (all 1-5)
 - `scoring_from_stored()` enables scorer evaluation from stored `details_json` without re-running the pipeline
 - `POST /api/v1/evaluation/evaluate/scorer/{job_id}` endpoint — evaluates scorer from stored batch results
 
@@ -1174,7 +1174,7 @@ Evaluation (Phase 9 + 10b — deterministic pat_id ordering with offset/limit):
 - **PyTorch tensor → numpy memory lifecycle:** Calling `.numpy()` on a tensor without `.detach()` can cause segfaults when the tensor is garbage-collected while numpy still references it. Fixed by adding `.detach()` before `.numpy()`, explicitly `del`eting intermediate tensors, and returning `np.ascontiguousarray()` from the embedder. FAISS search also uses `np.ascontiguousarray()` to guarantee memory alignment.
 - **PubMedBERT requires ~2GB RAM:** The embedding model (~440MB on disk) needs significant memory. Loaded at startup via lifespan handler so it's ready before any HTTP request arrives.
 - **Embedder tests use bert-tiny model:** Real PubMedBERT (~440MB) too large for unit tests. Tests use `prajjwal1/bert-tiny` (17MB, 128-dim) — same encoding logic, different weights. Integration tests with real model needed.
-- **Scorer tests use mock LLM:** Unit tests mock the AI provider. Integration tests with a real LLM needed to validate prompt quality and parsing against actual LLM outputs.
+- **Compliance Auditor Agent tests use mock LLM:** Unit tests mock the AI provider. Integration tests with a real LLM needed to validate prompt quality and parsing against actual LLM outputs.
 - **~~Binary scoring only~~ RESOLVED (Phase 8b):** Scoring upgraded to 5-level scale (-2 to +2) with confidence and NICE citations. Legacy binary results remain readable via backward-compat detection.
 - **Sparse coded data bias:** Most patients have only diagnoses + referrals in coded SNOMED data, no explicit treatments. Scoring prompt is tuned to give benefit of the doubt (referral alone scores positively), but this may over-count adherence for patients where a referral was made for an unrelated condition. Gold-standard validation (Phase 7b) will quantify this.
 - **~~Retriever returns irrelevant guidelines~~ RESOLVED (Phase 10a):** FAISS retriever returned off-topic guidelines (e.g., chest pain for carpal tunnel, diabetic foot for generic foot pain) due to PubMedBERT embedding imprecision across the 277K-guideline corpus. 80% of OpenAI vs Ollama disagreements were caused by this. Fixed with two-layer post-retrieval filter: title keyword exclusion + body-region topic matching + L2 distance threshold (default 1.2). Needs re-validation with fresh batch runs.

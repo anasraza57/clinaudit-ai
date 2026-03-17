@@ -2,7 +2,7 @@
 FAISS vector store management.
 
 Loads the pre-built FAISS index and the guidelines CSV, providing
-a search interface used by the Retriever agent to find relevant
+a search interface used by the Guideline Evidence Finder to find relevant
 clinical guidelines for a given query embedding.
 """
 

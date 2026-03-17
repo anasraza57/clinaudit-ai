@@ -79,7 +79,7 @@ def compute_if_ready():
         scorer_state['final_score'] = final_state['final_score']
 ```
 
-He ran two Flask servers in threads (Retriever on port 5000, Scorer on port 5001) inside a Colab notebook, communicating via JSON-RPC. The scorer waited for two separate inputs (extracted data from the Extractor and guidelines from the Retriever) before computing.
+He ran two Flask servers in threads (Guideline Evidence Finder on port 5000, Compliance Auditor Agent on port 5001) inside a Colab notebook, communicating via JSON-RPC. The scorer waited for two separate inputs (extracted data from the Consultation Insight Agent and guidelines from the Guideline Evidence Finder) before computing.
 
 ### Problems with Cyprian's Approach
 
@@ -148,7 +148,7 @@ A single global dictionary holds all state. If two patients are processed concur
 
 #### 7. Over-Engineered Architecture
 
-Running Flask JSON-RPC servers in threads inside a Colab notebook to do something that's fundamentally a function call. The Retriever sends guidelines to the Scorer via HTTP POST to localhost — this could just be `scorer.score(guidelines)`.
+Running Flask JSON-RPC servers in threads inside a Colab notebook to do something that's fundamentally a function call. The Guideline Evidence Finder sends guidelines to the Compliance Auditor Agent via HTTP POST to localhost — this could just be `scorer.score(guidelines)`.
 
 #### 8. LangGraph for a Two-Step Pipeline
 

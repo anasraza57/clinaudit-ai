@@ -158,10 +158,10 @@ These endpoints run the 4-agent pipeline and store results. This is where the ac
 
 **What it does (takes 5–15 seconds):**
 1. Looks up the patient's clinical entries from the database
-2. **Extractor Agent** — groups entries by episode, categorises each (diagnosis, treatment, referral, etc.)
-3. **Query Agent** — generates 1–3 search queries per diagnosis
-4. **Retriever Agent** — encodes queries with PubMedBERT, searches FAISS index for relevant NICE guidelines
-5. **Scorer Agent** — sends each diagnosis + treatments + guidelines to the LLM, which evaluates adherence
+2. **Consultation Insight Agent** — groups entries by episode, categorises each (diagnosis, treatment, referral, etc.)
+3. **Audit Query Generator** — generates 1–3 search queries per diagnosis
+4. **Guideline Evidence Finder** — encodes queries with PubMedBERT, searches FAISS index for relevant NICE guidelines
+5. **Compliance Auditor Agent** — sends each diagnosis + treatments + guidelines to the LLM, which evaluates adherence
 6. Stores the result in the `audit_results` table
 7. Returns the result immediately
 

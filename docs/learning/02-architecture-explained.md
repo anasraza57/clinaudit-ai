@@ -15,29 +15,29 @@ Patient Data
     │
     ▼
 ┌──────────────────┐
-│  Extractor Agent  │  "What happened in this consultation?"
+│  Consultation Insight Agent  │  "What happened in this consultation?"
 └────────┬─────────┘
          │ Diagnoses, Treatments, Procedures, Referrals
          ▼
 ┌──────────────────┐
-│   Query Agent     │  "What guidelines should we look up?"
+│   Audit Query Generator     │  "What guidelines should we look up?"
 └────────┬─────────┘
          │ Search Queries
          ▼
 ┌──────────────────┐
-│ Retriever Agent   │  "Here are the relevant guideline passages"
+│ Guideline Evidence Finder   │  "Here are the relevant guideline passages"
 └────────┬─────────┘
          │ Guideline Text Chunks
          ▼
 ┌──────────────────┐
-│  Scorer Agent     │  "Does the care match the guidelines?"
+│  Compliance Auditor Agent     │  "Does the care match the guidelines?"
 └────────┬─────────┘
          │
          ▼
    Audit Report (scores + explanations)
 ```
 
-Each agent has ONE job. This is the **Single Responsibility Principle** — if we need to change how scoring works, we only touch the Scorer. If we need better guidelines retrieval, we only touch the Retriever. Nothing else breaks.
+Each agent has ONE job. This is the **Single Responsibility Principle** — if we need to change how scoring works, we only touch the Compliance Auditor Agent. If we need better guidelines retrieval, we only touch the Guideline Evidence Finder. Nothing else breaks.
 
 ### Pattern 2: Layered Application Architecture
 

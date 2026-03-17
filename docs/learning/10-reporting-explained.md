@@ -56,7 +56,7 @@ HTTP Request → Route (reports.py) → Service (reporting.py) → Database
 
 **Pagination:** Returns `page`, `page_size`, `total`, `total_pages`, and the `cases` slice. Handles edge cases like requesting a page beyond the data (returns empty `cases` with correct `total`).
 
-**Purpose:** This is the endpoint clinicians would use to review cases flagged as non-adherent. Each case includes the explanation (from the Scorer Agent's LLM output) and the specific guidelines that weren't followed.
+**Purpose:** This is the endpoint clinicians would use to review cases flagged as non-adherent. Each case includes the explanation (from the Compliance Auditor Agent's LLM output) and the specific guidelines that weren't followed.
 
 ### 4. `get_score_distribution()` — Score Histogram
 

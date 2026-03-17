@@ -58,7 +58,7 @@ scoring = await self._scorer.score(extraction, retrieval)
 Both achieve the same result. But our version:
 - Is readable at a glance (no graph compilation needed)
 - Makes the data flow explicit (each stage's output feeds the next)
-- Shows that the Scorer receives **two** inputs (extraction + retrieval)
+- Shows that the Compliance Auditor Agent receives **two** inputs (extraction + retrieval)
 - Is trivially testable (mock any stage, verify the rest)
 - Has no external dependency
 
@@ -96,7 +96,7 @@ Database
   │  Identifies 1 diagnosis: "Finger fracture"
   │
   ▼
-[Stage 2: Query Agent] → QueryResult
+[Stage 2: Audit Query Generator] → QueryResult
   │  Generates 1-3 search queries per diagnosis
   │  e.g., "NICE guidelines for finger fracture management"
   │
@@ -136,11 +136,11 @@ When the same diagnosis term appears in a *different* episode (different index_d
 
 | Stage | Cache Key | What's Reused |
 |-------|-----------|-------------|
-| **Query Agent** | `diagnosis_term` | Generated queries (template or LLM) |
+| **Audit Query Generator** | `diagnosis_term` | Generated queries (template or LLM) |
 | **Retriever** | `diagnosis_term` | Embeddings + FAISS search results |
 | **Scorer** | N/A (each episode scored independently) | — |
 
-The Query Agent and Retriever cache by diagnosis term alone — the same diagnosis always produces the same queries and the same guideline matches regardless of which episode it appears in. The Scorer doesn't need term-level caching because different episodes may have different treatments/referrals.
+The Audit Query Generator and Guideline Evidence Finder cache by diagnosis term alone — the same diagnosis always produces the same queries and the same guideline matches regardless of which episode it appears in. The Compliance Auditor Agent doesn't need term-level caching because different episodes may have different treatments/referrals.
 
 For our example patient with 4x "Finger pain" + 2x "Finger fracture" across 2 episodes:
 - **Before:** 4 LLM query calls, 6 encode+search, 6 scorer LLM calls = **10 LLM calls**, **6 report entries** (with duplicates)
@@ -173,7 +173,7 @@ except Exception as e:
 await self._store_result(session, pat_id, pipeline_result, job_id)
 ```
 
-The key principle: **never lose work**. Even if the Scorer fails for patient 42, we:
+The key principle: **never lose work**. Even if the Compliance Auditor Agent fails for patient 42, we:
 - Log the error with patient ID and stage
 - Store a "failed" AuditResult in the DB
 - Continue processing patient 43

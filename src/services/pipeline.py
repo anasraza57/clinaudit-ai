@@ -110,7 +110,7 @@ class AuditPipeline:
 
     async def load_categories(self, concept_displays: list[str]) -> None:
         """
-        Pre-load SNOMED concept categories for the Extractor.
+        Pre-load SNOMED concept categories for the Consultation Insight Agent.
 
         Call this once with all unique concept_display values from the
         dataset before processing patients.

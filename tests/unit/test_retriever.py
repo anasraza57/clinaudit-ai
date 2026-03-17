@@ -1,5 +1,5 @@
 """
-Tests for the Retriever Agent.
+Tests for the Guideline Evidence Finder.
 
 Uses mock embedder and vector store to test retrieval logic
 without loading the real PubMedBERT model or FAISS index.
@@ -118,7 +118,7 @@ def empty_query_result():
     )
 
 
-# ── Retriever Agent tests ────────────────────────────────────────────
+# ── Guideline Evidence Finder tests ──────────────────────────────────
 
 
 class TestGuidelineEvidenceFinder:

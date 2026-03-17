@@ -169,7 +169,7 @@ This is why:
 
 Index building is a **one-time cost**. You run the script once, it saves `guidelines.index`, and you never run it again (unless guidelines change).
 
-At runtime, the Retriever Agent only encodes **search queries** (short texts, batch-encoded per diagnosis — typically 3 at a time), not all 1,656 guidelines. Encoding a batch of 3 short queries takes ~100ms on CPU — fast enough for an API response. Batch encoding is more efficient than individual calls because the model weights are loaded into the CPU cache once per batch.
+At runtime, the Guideline Evidence Finder only encodes **search queries** (short texts, batch-encoded per diagnosis — typically 3 at a time), not all 1,656 guidelines. Encoding a batch of 3 short queries takes ~100ms on CPU — fast enough for an API response. Batch encoding is more efficient than individual calls because the model weights are loaded into the CPU cache once per batch.
 
 ---
 

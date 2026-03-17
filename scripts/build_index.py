@@ -2,7 +2,7 @@
 Build the FAISS guideline index from guidelines.csv using PubMedBERT.
 
 Reads each guideline's clean_text, encodes it with the same PubMedBERT
-model used by the Retriever Agent, and saves a FAISS IndexFlatL2.
+model used by the Guideline Evidence Finder, and saves a FAISS IndexFlatL2.
 
 Usage:
     python3 scripts/build_index.py

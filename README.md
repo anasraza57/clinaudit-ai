@@ -7,29 +7,33 @@
 ClinAuditAI runs a 4-agent pipeline on each patient's clinical record:
 
 ```
-Patient Record -> Consultation    -> Audit Query   -> Guideline       -> Compliance      -> Audit Report
-                  Insight Agent      Generator        Evidence Finder    Auditor Agent
-                       |                 |                  |                 |
-                       |                 |                  |                 +-- LLM scores each diagnosis
-                       |                 |                  |                    on a 5-level scale (-2 to +2)
-                       |                 |                  +-- FAISS + PubMedBERT find relevant NICE guidelines
-                       |                 +-- Generates targeted search queries per diagnosis
-                       +-- Groups SNOMED-coded entries by episode (diagnoses, treatments, referrals)
+Patient Record ─► Consultation    ─► Audit Query   ─► Guideline       ─► Compliance      ─► Audit Report
+                   Insight Agent      Generator        Evidence Finder    Auditor Agent
+                        │                 │                  │                 │
+                        │                 │                  │                 └── LLM scores each diagnosis
+                        │                 │                  │                     on a 5-level scale (-2 to +2)
+                        │                 │                  └── FAISS + PubMedBERT find relevant NICE guidelines
+                        │                 └── Generates targeted search queries per diagnosis
+                        └── Groups SNOMED-coded entries by episode (diagnoses, treatments, referrals)
 ```
 
 **Output per patient:**
+
 - Overall adherence score (0.0 to 1.0)
 - Per-diagnosis scores: **+2** Compliant, **+1** Partial, **0** Not Relevant, **-1** Non-Compliant, **-2** Risky
 - Confidence scores (0.0 to 1.0) and cited NICE guideline text for each judgement
 - Missing care opportunities (NICE-recommended actions not documented in the record)
 - Explanations with specific guidelines followed / not followed
 
+---
+
 ## Quick Start
 
 ### Prerequisites
+
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose
 - Python 3.11+
-- An OpenAI API key (for the LLM-based agents), or [Ollama](https://ollama.com/) for local LLM processing
+- An OpenAI API key (for the LLM-based agents), [Anthropic API key](https://console.anthropic.com/), or [Ollama](https://ollama.com/) for local LLM processing
 - ~2 GB RAM for PubMedBERT model loading
 
 ### Setup
@@ -98,7 +102,7 @@ make run          # local
 make up           # Docker
 ```
 
-Switch between models by changing `AI_PROVIDER` in `.env` and restarting. Embeddings always use PubMedBERT regardless of the LLM provider.
+Switch between providers by changing `AI_PROVIDER` in `.env` and restarting. Supported providers: `openai`, `anthropic`, `ollama`. Embeddings always use PubMedBERT regardless of the LLM provider.
 
 ### Verify It's Running
 
@@ -113,59 +117,69 @@ curl http://localhost:8000/health/ready
 open http://localhost:8000/docs
 ```
 
+---
+
 ## API Endpoints
 
 All endpoints are documented interactively at **http://localhost:8000/docs** (Swagger UI).
 
 ### Health
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/health` | Liveness check |
 | GET | `/health/ready` | Readiness check (DB + FAISS + PubMedBERT) |
 
 ### Data
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/v1/data/stats` | Database row counts (patients, entries, guidelines) |
 | POST | `/api/v1/data/import/patients` | Import patient records from CSV |
 | POST | `/api/v1/data/import/guidelines` | Import guidelines from CSV |
 
-### Audit (Pipeline Execution)
+### Audit
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/v1/audit/patient/{pat_id}` | Audit a single patient (synchronous) |
-| POST | `/api/v1/audit/batch` | Start a batch audit (`?limit=N`, `?skip_audited=true`) |
+| POST | `/api/v1/audit/batch` | Start a batch audit (`?limit=N`, `?pat_ids=X,Y`, `?skip_audited=true`, `?match_model=X`) |
 | GET | `/api/v1/audit/jobs/{job_id}` | Check batch job status and progress |
-| GET | `/api/v1/audit/jobs/{job_id}/results` | Paginated results, sorted by `pat_id` then id (`?page=1&page_size=20`, `?status=failed`) |
+| GET | `/api/v1/audit/jobs/{job_id}/results` | Paginated results (`?page=1&page_size=20`, `?status=completed\|failed`) |
 | GET | `/api/v1/audit/results/{pat_id}` | All audit results for a specific patient |
 
-### Reports (Analytics)
+### Reports
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/v1/reports/dashboard` | Summary stats: total audited, mean/median score, failure rate (`?job_id=N&model=X`) |
-| GET | `/api/v1/reports/conditions` | Per-condition adherence breakdown (`?sort_by=adherence_rate&min_count=3&model=X`) |
-| GET | `/api/v1/reports/non-adherent` | Paginated non-adherent cases for clinical review (`?job_id=N&model=X`) |
-| GET | `/api/v1/reports/score-distribution` | Score histogram with configurable bins (`?bins=10&model=X`) |
+| GET | `/api/v1/reports/conditions` | Per-condition adherence breakdown (`?sort_by=adherence_rate\|count`, `?min_count=3&model=X`) |
+| GET | `/api/v1/reports/non-adherent` | Paginated non-adherent cases (`?job_id=N&model=X&page=1&page_size=20`) |
+| GET | `/api/v1/reports/score-distribution` | Score histogram (`?bins=10&job_id=N&model=X`) |
 
 ### Exports
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/v1/reports/export/csv` | CSV file (one row per diagnosis per patient, `?model=X`) |
-| GET | `/api/v1/reports/export/html` | Self-contained HTML report with inline SVG charts (`?model=X`) |
-| GET | `/api/v1/reports/export/comparison-html` | Cross-model comparison report (`?job_a=1&job_b=2` or `?model_a=X&model_b=Y`, `&include_scorer_eval=true`) |
+| GET | `/api/v1/reports/export/csv` | CSV file — one row per diagnosis per patient (`?job_id=N&model=X`) |
+| GET | `/api/v1/reports/export/html` | Self-contained HTML report with inline SVG charts (`?job_id=N&model=X&use_saved_evals=true`) |
+| GET | `/api/v1/reports/export/comparison-html` | Cross-model comparison report (`?job_a=1&job_b=2` or `?model_a=X&model_b=Y`, `?include_scorer_eval=true&scorer_eval_limit=10&use_saved_evals=true`) |
 
 ### Evaluation
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/v1/evaluation/compare` | Compare two batch jobs: Cohen's kappa, Pearson, per-condition deltas (`?job_a=1&job_b=2`) |
-| GET | `/api/v1/evaluation/missing-care` | Missing care opportunities aggregated by condition (`?job_id=N&min_count=2`) |
+| GET | `/api/v1/evaluation/compare` | Compare two batch jobs: Cohen's kappa, Pearson, per-condition deltas (`?job_a=1&job_b=2` or `?model_a=X&model_b=Y`) |
+| GET | `/api/v1/evaluation/missing-care` | Missing care opportunities aggregated by condition (`?job_id=N&model=X&min_count=2`) |
 | POST | `/api/v1/evaluation/evaluate/scorer` | LLM-as-Judge scorer quality evaluation (`?model=X&limit=10&offset=0`, deterministic `pat_id` ordering) |
-| GET | `/api/v1/evaluation/system-metrics` | Score class distribution, adherence rate, confidence stats (`?job_id=N`) |
-| GET | `/api/v1/evaluation/cross-model-metrics` | Confusion matrix, per-class P/R/F1, AUROC, Cohen's kappa (`?job_a=1&job_b=2`) |
-| GET | `/api/v1/evaluation/extractor-metrics` | Extractor SNOMED categorisation P/R/F1 (no LLM needed, `?sample_size=500`) |
-| POST | `/api/v1/evaluation/evaluate/agents` | Full 4-agent pipeline evaluation with retriever IR metrics (`?limit=5&offset=0`, deterministic `pat_id` ordering, expensive) |
+| GET | `/api/v1/evaluation/system-metrics` | Score class distribution, adherence rate, confidence stats (`?job_id=N&model=X`) |
+| GET | `/api/v1/evaluation/cross-model-metrics` | Confusion matrix, per-class P/R/F1, AUROC, Cohen's kappa (`?job_a=1&job_b=2` or `?model_a=X&model_b=Y`) |
+| GET | `/api/v1/evaluation/extractor-metrics` | Extractor SNOMED categorisation P/R/F1 — no LLM needed (`?sample_size=500`) |
+| POST | `/api/v1/evaluation/evaluate/agents` | Full 4-agent pipeline evaluation with retriever IR metrics (`?model=X&limit=5&offset=0`, expensive) |
 
 All report and evaluation endpoints accept `?job_id=N` or `?model=X` to scope results to a specific batch run or model. Evaluation endpoints use deterministic `pat_id` sorting with `offset`/`limit` for resumable runs and fair cross-model comparison.
+
+---
 
 ## Usage Guide
 
@@ -226,6 +240,7 @@ curl -o report.html "http://localhost:8000/api/v1/reports/export/html?job_id=1"
 ```
 
 The HTML report includes:
+
 - Dashboard stats (total audited, failure rate, score statistics)
 - Inline SVG charts: score distribution histogram, compliance donut chart, per-condition adherence bars
 - Per-patient detail cards with 5-level badges, confidence scores, NICE citations, and missing care flags
@@ -319,10 +334,12 @@ curl -o comparison.html "http://localhost:8000/api/v1/reports/export/comparison-
 
 The report includes: system-level metrics, SVG charts (score distribution, compliance donuts, confusion matrix), cross-model agreement (kappa, Pearson, AUROC, per-class P/R/F1), extractor quality, missing care, and per-patient comparison. Open in any browser, print-friendly, no external dependencies.
 
+---
+
 ## Development
 
 ```bash
-# Run all tests (371 tests)
+# Run all tests
 make test
 
 # Run tests with coverage
@@ -364,9 +381,15 @@ Run `make help` for all available commands:
 | `make test` | Run all tests |
 | `make test-cov` | Run tests with coverage report |
 | `make migrate` | Run database migrations |
+| `make migrate-new` | Create a new migration (`MSG="description"`) |
 | `make logs` | Follow app logs |
+| `make logs-db` | Follow database logs |
+| `make shell` | Open a shell in the app container |
 | `make clean` | Remove containers, volumes, and cache files |
 | `make build-index` | Build FAISS guideline index |
+| `make setup-data` | Copy reference data files into `data/` |
+
+---
 
 ## Database
 
@@ -390,16 +413,22 @@ DB_HOST=localhost alembic upgrade head
 DB_HOST=localhost alembic revision --autogenerate -m "description"
 ```
 
+---
+
 ## Environment Variables
 
 Key variables (see `.env.example` for the full list):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AI_PROVIDER` | `openai` | LLM provider: `openai`, `ollama`, or `anthropic` |
-| `OPENAI_API_KEY` | (required) | Your OpenAI API key |
+| `AI_PROVIDER` | `openai` | LLM provider: `openai`, `anthropic`, or `ollama` |
+| `OPENAI_API_KEY` | — | Your OpenAI API key |
 | `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model to use |
+| `ANTHROPIC_API_KEY` | — | Your Anthropic API key |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model to use |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
 | `OLLAMA_MODEL` | `mistral-small` | Ollama model to use |
+| `OLLAMA_REQUEST_TIMEOUT` | `120` | Seconds before an Ollama request times out |
 | `DB_HOST` | `db` | Database host (`db` for Docker, `localhost` for local) |
 | `DB_PORT` | `5433` | Database port |
 | `RETRIEVER_TOP_K` | `5` | Number of guideline chunks to retrieve per query |
@@ -407,6 +436,8 @@ Key variables (see `.env.example` for the full list):
 | `BATCH_CONCURRENCY` | `5` | Patients processed in parallel (1-2 for Ollama, 5+ for OpenAI) |
 | `PIPELINE_PATIENT_TIMEOUT` | `300` | Seconds before a single patient audit times out |
 | `OPENAI_REQUEST_TIMEOUT` | `60` | Seconds before a single LLM API call times out |
+
+---
 
 ## Evaluation Results
 
@@ -431,50 +462,54 @@ Cross-model evaluation on the same patients using deterministic `pat_id` orderin
 
 Result files stored in `data/eval_results/`.
 
+---
+
 ## Project Structure
 
 ```
 clinaudit-ai/
-+-- src/                  # Application source code
-|   +-- ai/               # LLM provider abstraction (OpenAI, Ollama)
-|   +-- agents/           # 4 pipeline agents
-|   |   +-- extractor.py  #   ConsultationInsightAgent: SNOMED categorisation
-|   |   +-- query.py      #   AuditQueryGenerator: template + LLM queries
-|   |   +-- retriever.py  #   GuidelineEvidenceFinder: PubMedBERT + FAISS
-|   |   +-- scorer.py     #   ComplianceAuditorAgent: 5-level LLM scoring
-|   +-- api/routes/        # FastAPI route handlers
-|   |   +-- health.py     #   Health checks
-|   |   +-- data.py       #   Data import + stats
-|   |   +-- audit.py      #   Pipeline execution (single + batch)
-|   |   +-- reports.py    #   Analytics + CSV/HTML exports
-|   |   +-- evaluation.py #   Model comparison + LLM-as-Judge
-|   +-- config/            # Configuration (Pydantic Settings)
-|   +-- models/            # SQLAlchemy database models
-|   +-- services/          # Business logic
-|       +-- pipeline.py    #   Pipeline orchestrator (chains all 4 agents)
-|       +-- reporting.py   #   Analytics (dashboard, conditions, missing care)
-|       +-- export.py      #   CSV/HTML report generation + SVG charts
-|       +-- comparison.py  #   Model comparison (Cohen's kappa, Pearson)
-|       +-- evaluation.py  #   LLM-as-Judge evaluation for all agents
-|       +-- embedder.py    #   PubMedBERT embedding service (singleton)
-|       +-- vector_store.py #  FAISS index management
-|       +-- data_import.py  #  CSV to database import
-|       +-- snomed_categoriser.py  # Rule-based + LLM SNOMED classification
-+-- tests/                 # Test suite (371 tests)
-+-- data/                  # Data files (CSVs, FAISS index)
-+-- migrations/            # Alembic database migrations
-+-- scripts/               # Utility scripts
-|   +-- import_data.py     #   Import CSV data into PostgreSQL
-|   +-- build_index.py     #   Build FAISS index from guidelines.csv
-|   +-- export_charts.py   #   Export charts as PNG files
-+-- exports/               # Generated reports and evaluation results
-+-- docker-compose.yml     # PostgreSQL + app services
-+-- Dockerfile             # Multi-stage app build
-+-- Makefile               # Common commands (make help)
-+-- PROJECT_BIBLE.md       # Complete project state, decisions, and roadmap
+├── src/                       # Application source code
+│   ├── ai/                    # LLM provider abstraction (OpenAI, Anthropic, Ollama)
+│   ├── agents/                # 4 pipeline agents
+│   │   ├── extractor.py       #   ConsultationInsightAgent: SNOMED categorisation
+│   │   ├── query.py           #   AuditQueryGenerator: template + LLM queries
+│   │   ├── retriever.py       #   GuidelineEvidenceFinder: PubMedBERT + FAISS
+│   │   └── scorer.py          #   ComplianceAuditorAgent: 5-level LLM scoring
+│   ├── api/routes/            # FastAPI route handlers
+│   │   ├── health.py          #   Health checks
+│   │   ├── data.py            #   Data import + stats
+│   │   ├── audit.py           #   Pipeline execution (single + batch)
+│   │   ├── reports.py         #   Analytics + CSV/HTML exports
+│   │   └── evaluation.py      #   Model comparison + LLM-as-Judge
+│   ├── config/                # Configuration (Pydantic Settings)
+│   ├── models/                # SQLAlchemy database models
+│   └── services/              # Business logic
+│       ├── pipeline.py        #   Pipeline orchestrator (chains all 4 agents)
+│       ├── reporting.py       #   Analytics (dashboard, conditions, missing care)
+│       ├── export.py          #   CSV/HTML report generation + SVG charts
+│       ├── comparison.py      #   Model comparison (Cohen's kappa, Pearson)
+│       ├── evaluation.py      #   LLM-as-Judge evaluation for all agents
+│       ├── embedder.py        #   PubMedBERT embedding service (singleton)
+│       ├── vector_store.py    #   FAISS index management
+│       ├── data_import.py     #   CSV to database import
+│       └── snomed_categoriser.py  # Rule-based + LLM SNOMED classification
+├── tests/                     # Test suite
+├── data/                      # Data files (CSVs, FAISS index)
+├── migrations/                # Alembic database migrations
+├── scripts/                   # Utility scripts
+│   ├── import_data.py         #   Import CSV data into PostgreSQL
+│   ├── build_index.py         #   Build FAISS index from guidelines.csv
+│   └── export_charts.py       #   Export charts as PNG files
+├── exports/                   # Generated reports and charts
+├── docker-compose.yml         # PostgreSQL + app services
+├── Dockerfile                 # Multi-stage app build
+├── Makefile                   # Common commands (make help)
+└── PROJECT_BIBLE.md           # Complete project state, decisions, and roadmap
 ```
+
+---
 
 ## Documentation
 
-- **[PROJECT_BIBLE.md](PROJECT_BIBLE.md)** -- Single source of truth: architecture, decisions, roadmap, progress
-- **[docs/learning/](docs/learning/)** -- Educational docs explaining every component in plain English
+- **[PROJECT_BIBLE.md](PROJECT_BIBLE.md)** — Single source of truth: architecture, decisions, roadmap, progress
+- **[docs/learning/](docs/learning/)** — Educational docs explaining every component in plain English
