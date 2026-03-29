@@ -4,18 +4,9 @@
 
 ## How It Works
 
-ClinAuditAI runs a 4-agent pipeline on each patient's clinical record:
+ClinAuditAI runs a 4-agent RAG pipeline on each patient's clinical record:
 
-```
-Patient Record ─► Consultation    ─► Audit Query   ─► Guideline       ─► Compliance      ─► Audit Report
-                   Insight Agent      Generator        Evidence Finder    Auditor Agent
-                        │                 │                  │                 │
-                        │                 │                  │                 └── LLM scores each diagnosis
-                        │                 │                  │                     on a 5-level scale (-2 to +2)
-                        │                 │                  └── FAISS + PubMedBERT find relevant NICE guidelines
-                        │                 └── Generates targeted search queries per diagnosis
-                        └── Groups SNOMED-coded entries by episode (diagnoses, treatments, referrals)
-```
+![ClinAuditAI Pipeline Architecture](data/pipeline_architecture.png)
 
 **Output per patient:**
 
