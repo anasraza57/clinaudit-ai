@@ -66,3 +66,7 @@ logs/
 Thumbs.db
 
 exports/
+
+# Paper & docs
+paper/
+docs/
